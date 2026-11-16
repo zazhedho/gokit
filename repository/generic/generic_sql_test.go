@@ -1,4 +1,4 @@
-package repositorygeneric
+package generic
 
 import (
 	"context"

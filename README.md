@@ -24,8 +24,8 @@ Request ids are owned by logus. `middlewares.SetContextId` stores the id through
 | `messages` | Shared response message constants. |
 | `response` | API response envelope types and constructors (`Response`, `ErrorResponse`, `InternalServerError`, `PaginationResponse`, ...). |
 | `filter` | Query-string parsing into pagination/sort parameters and filter whitelisting. |
-| `repository` | The generic repository contract. |
-| `repository/generic` | A GORM implementation of the repository contract. |
+| `repository` | The minimal repository interface (`GenericRepository[T]`) that domain repositories expose. |
+| `repository/generic` | A GORM-backed building block (`GenericRepository[T]` struct) that domain repositories embed or wrap. |
 | `middlewares` | `CORS`, `SetContextId`, `ErrorHandler` (panic recovery), and Redis-backed `IPRateLimitMiddleware` / `EndpointRateLimitMiddleware`. |
 | `handlercommon` | Handler helpers: `BindJSON` and `ValidateUUID`, which write standard 400 responses. |
 

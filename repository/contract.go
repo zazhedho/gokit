@@ -1,4 +1,4 @@
-package interfacegeneric
+package repository
 
 import (
 	"context"
