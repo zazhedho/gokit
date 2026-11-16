@@ -40,14 +40,9 @@ func IPRateLimitMiddleware(redisClient *redis.Client, prefix string, limit int, 
 			return
 		}
 
-		if current == 1 {
-			if err := redisClient.Expire(reqCtx, key, window).Err(); err != nil {
-				logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; redis.Expire error: %v", logPrefix, err))
-			}
-		}
+		ttl := ensureWindowExpiry(ctx, redisClient, key, window, current, logPrefix)
 
 		if current > int64(limit) {
-			ttl, _ := redisClient.TTL(reqCtx, key).Result()
 			if ttl > 0 {
 				ctx.Header("Retry-After", strconv.Itoa(int(ttl.Seconds())))
 			}
@@ -90,14 +85,9 @@ func EndpointRateLimitMiddleware(redisClient *redis.Client, limit int, window ti
 			return
 		}
 
-		if current == 1 {
-			if err := redisClient.Expire(reqCtx, key, window).Err(); err != nil {
-				logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; redis.Expire error: %v", logPrefix, err))
-			}
-		}
+		ttl := ensureWindowExpiry(ctx, redisClient, key, window, current, logPrefix)
 
 		if current > int64(limit) {
-			ttl, _ := redisClient.TTL(reqCtx, key).Result()
 			if ttl > 0 {
 				ctx.Header("Retry-After", strconv.Itoa(int(ttl.Seconds())))
 			}
@@ -113,4 +103,28 @@ func EndpointRateLimitMiddleware(redisClient *redis.Client, limit int, window ti
 
 		ctx.Next()
 	}
+}
+
+// ensureWindowExpiry guarantees the counter key carries a TTL. It sets the
+// window expiry on the first hit and, on later hits, re-applies it when Redis
+// reports the key has no TTL (-1), so a failed first EXPIRE cannot leave the
+// key immortal. The calls use a context detached from the request's
+// cancellation, keeping a 2 second timeout. It returns the remaining TTL when
+// known (0 if unknown).
+func ensureWindowExpiry(ctx *gin.Context, redisClient *redis.Client, key string, window time.Duration, current int64, logPrefix string) time.Duration {
+	expCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx.Request.Context()), 2*time.Second)
+	defer cancel()
+
+	if current > 1 {
+		ttl, err := redisClient.TTL(expCtx, key).Result()
+		if err != nil || ttl != -1 {
+			return ttl
+		}
+	}
+
+	if err := redisClient.Expire(expCtx, key, window).Err(); err != nil {
+		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; redis.Expire error: %v", logPrefix, err))
+		return 0
+	}
+	return window
 }
