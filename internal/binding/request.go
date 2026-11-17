@@ -1,17 +1,17 @@
-package handlercommon
+package binding
 
 import (
 	"errors"
 	"net/http"
 
-	"github.com/zazhedho/gokit/response"
-	"github.com/zazhedho/gokit/utils"
+	"github.com/zazhedho/gokit/internal/response"
+	"github.com/zazhedho/gokit/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
-func ValidateUUID(ctx *gin.Context, logID uuid.UUID) (string, error) {
+func ValidateUUIDParam(ctx *gin.Context, logID uuid.UUID) (string, error) {
 	id, err := utils.ValidateUUID(ctx.Param("id"))
 	if err == nil {
 		return id, nil

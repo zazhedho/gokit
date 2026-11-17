@@ -1,10 +1,10 @@
-package generic
+package repository
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/zazhedho/gokit/filter"
+	"github.com/zazhedho/gokit/internal/filter"
 	"strings"
 	"time"
 
@@ -27,19 +27,19 @@ type QueryOptions struct {
 	DefaultOrders       []string
 }
 
-type GenericRepository[T any] struct {
+type Repository[T any] struct {
 	DB *gorm.DB
 }
 
-func New[T any](db *gorm.DB) *GenericRepository[T] {
-	return &GenericRepository[T]{DB: db}
+func NewRepository[T any](db *gorm.DB) *Repository[T] {
+	return &Repository[T]{DB: db}
 }
 
-func (r *GenericRepository[T]) Store(ctx context.Context, m T) error {
+func (r *Repository[T]) Store(ctx context.Context, m T) error {
 	return r.DB.WithContext(ctx).Create(&m).Error
 }
 
-func (r *GenericRepository[T]) Upsert(ctx context.Context, values []T, conflictColumns, updateColumns []string) error {
+func (r *Repository[T]) Upsert(ctx context.Context, values []T, conflictColumns, updateColumns []string) error {
 	if len(values) == 0 {
 		return nil
 	}
@@ -67,7 +67,7 @@ func (r *GenericRepository[T]) Upsert(ctx context.Context, values []T, conflictC
 	}).Create(&values).Error
 }
 
-func (r *GenericRepository[T]) GetByID(ctx context.Context, id string) (ret T, err error) {
+func (r *Repository[T]) GetByID(ctx context.Context, id string) (ret T, err error) {
 	err = r.DB.WithContext(ctx).Where(idEqualsQuery, id).First(&ret).Error
 	if err != nil {
 		return zeroValue[T](), err
@@ -76,7 +76,7 @@ func (r *GenericRepository[T]) GetByID(ctx context.Context, id string) (ret T, e
 	return ret, nil
 }
 
-func (r *GenericRepository[T]) GetOneByField(ctx context.Context, field string, value any) (ret T, err error) {
+func (r *Repository[T]) GetOneByField(ctx context.Context, field string, value any) (ret T, err error) {
 	if err = validateColumnIdentifier(field); err != nil {
 		return zeroValue[T](), err
 	}
@@ -89,7 +89,7 @@ func (r *GenericRepository[T]) GetOneByField(ctx context.Context, field string, 
 	return ret, nil
 }
 
-func (r *GenericRepository[T]) GetManyByField(ctx context.Context, field string, value any) (ret []T, err error) {
+func (r *Repository[T]) GetManyByField(ctx context.Context, field string, value any) (ret []T, err error) {
 	if err = validateColumnIdentifier(field); err != nil {
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func (r *GenericRepository[T]) GetManyByField(ctx context.Context, field string,
 	return ret, nil
 }
 
-func (r *GenericRepository[T]) ExistsByField(ctx context.Context, field string, value any) (exists bool, err error) {
+func (r *Repository[T]) ExistsByField(ctx context.Context, field string, value any) (exists bool, err error) {
 	if err = validateColumnIdentifier(field); err != nil {
 		return false, err
 	}
@@ -116,7 +116,7 @@ func (r *GenericRepository[T]) ExistsByField(ctx context.Context, field string, 
 	return count > 0, nil
 }
 
-func (r *GenericRepository[T]) ExistsByFields(ctx context.Context, filters map[string]any) (exists bool, err error) {
+func (r *Repository[T]) ExistsByFields(ctx context.Context, filters map[string]any) (exists bool, err error) {
 	query := r.DB.WithContext(ctx).Model(new(T))
 	for key, value := range filters {
 		if err = validateColumnIdentifier(key); err != nil {
@@ -134,7 +134,7 @@ func (r *GenericRepository[T]) ExistsByFields(ctx context.Context, filters map[s
 	return count > 0, nil
 }
 
-func (r *GenericRepository[T]) GetAll(ctx context.Context, params filter.BaseParams, opts QueryOptions) (ret []T, totalData int64, err error) {
+func (r *Repository[T]) GetAll(ctx context.Context, params filter.BaseParams, opts QueryOptions) (ret []T, totalData int64, err error) {
 	query := r.DB.WithContext(ctx).Model(new(T))
 	if opts.BaseQuery != nil {
 		query = opts.BaseQuery(query)
@@ -162,15 +162,15 @@ func (r *GenericRepository[T]) GetAll(ctx context.Context, params filter.BasePar
 	return ret, totalData, nil
 }
 
-func (r *GenericRepository[T]) Update(ctx context.Context, m T) error {
+func (r *Repository[T]) Update(ctx context.Context, m T) error {
 	return r.DB.WithContext(ctx).Save(&m).Error
 }
 
-func (r *GenericRepository[T]) Delete(ctx context.Context, id string) error {
+func (r *Repository[T]) Delete(ctx context.Context, id string) error {
 	return r.DB.WithContext(ctx).Where(idEqualsQuery, id).Delete(new(T)).Error
 }
 
-func (r *GenericRepository[T]) SoftDelete(ctx context.Context, id, deletedBy string) error {
+func (r *Repository[T]) SoftDelete(ctx context.Context, id, deletedBy string) error {
 	return r.DB.WithContext(ctx).Model(new(T)).Where(idEqualsQuery, id).Updates(map[string]any{
 		"deleted_by": deletedBy,
 		"deleted_at": time.Now(),

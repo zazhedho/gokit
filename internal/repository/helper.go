@@ -1,9 +1,9 @@
-package generic
+package repository
 
 import (
 	"fmt"
-	"github.com/zazhedho/gokit/filter"
-	"github.com/zazhedho/gokit/utils"
+	"github.com/zazhedho/gokit/internal/filter"
+	"github.com/zazhedho/gokit/internal/utils"
 	"reflect"
 	"slices"
 	"strings"

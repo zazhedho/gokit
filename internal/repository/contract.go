@@ -2,10 +2,10 @@ package repository
 
 import (
 	"context"
-	"github.com/zazhedho/gokit/filter"
+	"github.com/zazhedho/gokit/internal/filter"
 )
 
-type GenericRepository[T any] interface {
+type CRUDRepository[T any] interface {
 	Store(ctx context.Context, data T) error
 	GetByID(ctx context.Context, id string) (T, error)
 	GetAll(ctx context.Context, params filter.BaseParams) ([]T, int64, error)

@@ -1,10 +1,10 @@
-package middlewares
+package middleware
 
 import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/zazhedho/gokit/utils"
+	"github.com/zazhedho/gokit/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"

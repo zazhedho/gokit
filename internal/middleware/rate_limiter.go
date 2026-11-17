@@ -1,4 +1,4 @@
-package middlewares
+package middleware
 
 import (
 	"context"
@@ -10,9 +10,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/zazhedho/gokit/messages"
-	"github.com/zazhedho/gokit/response"
-	"github.com/zazhedho/gokit/utils"
+	"github.com/zazhedho/gokit/internal/messages"
+	"github.com/zazhedho/gokit/internal/response"
+	"github.com/zazhedho/gokit/internal/utils"
 	"github.com/zazhedho/logus"
 )
 

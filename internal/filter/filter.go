@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/zazhedho/gokit/utils"
+	"github.com/zazhedho/gokit/internal/utils"
 )
 
 type BaseParams struct {

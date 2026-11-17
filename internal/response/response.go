@@ -2,7 +2,7 @@ package response
 
 import (
 	"fmt"
-	"github.com/zazhedho/gokit/messages"
+	"github.com/zazhedho/gokit/internal/messages"
 	"math"
 	"net/http"
 

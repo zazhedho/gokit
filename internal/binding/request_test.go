@@ -1,4 +1,4 @@
-package handlercommon
+package binding
 
 import (
 	"net/http"
@@ -28,7 +28,7 @@ func TestValidateUUIDKeepsHTTPValidationResponses(t *testing.T) {
 				ctx.Params = gin.Params{{Key: "id", Value: test.value}}
 			}
 
-			got, err := ValidateUUID(ctx, uuid.New())
+			got, err := ValidateUUIDParam(ctx, uuid.New())
 			if test.wantError == "" {
 				if err != nil || got != test.value {
 					t.Fatalf("expected id %q, got %q, err=%v", test.value, got, err)

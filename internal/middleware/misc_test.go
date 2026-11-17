@@ -1,4 +1,4 @@
-package middlewares
+package middleware
 
 import (
 	"encoding/json"
@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/zazhedho/logus"
 
-	"github.com/zazhedho/gokit/utils"
+	"github.com/zazhedho/gokit/internal/utils"
 )
 
 func TestCORSHandlesOptionsAndSetsHeaders(t *testing.T) {

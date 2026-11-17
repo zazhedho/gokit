@@ -1,4 +1,4 @@
-package handlercommon
+package binding
 
 import (
 	"net/http"
@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zazhedho/gokit/utils"
+	"github.com/zazhedho/gokit/internal/utils"
 
 	"github.com/gin-gonic/gin"
 )

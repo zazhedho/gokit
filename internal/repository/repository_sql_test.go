@@ -1,4 +1,4 @@
-package generic
+package repository
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/zazhedho/gokit/filter"
+	"github.com/zazhedho/gokit/internal/filter"
 )
 
 type sampleRecord struct {
@@ -48,7 +48,7 @@ func newDryRunDB(t *testing.T) *gorm.DB {
 }
 
 func TestGenericRepositoryDryRunCRUDMethods(t *testing.T) {
-	repo := New[sampleRecord](newDryRunDB(t))
+	repo := NewRepository[sampleRecord](newDryRunDB(t))
 	ctx := context.Background()
 	record := sampleRecord{ID: "record-1", Name: "Jane", Status: "active"}
 
@@ -85,7 +85,7 @@ func TestGenericRepositoryDryRunCRUDMethods(t *testing.T) {
 }
 
 func TestGenericRepositoryUpsertValidation(t *testing.T) {
-	repo := New[sampleRecord](newDryRunDB(t))
+	repo := NewRepository[sampleRecord](newDryRunDB(t))
 	record := sampleRecord{ID: "record-1", Name: "Jane", Status: "active"}
 
 	err := repo.Upsert(context.Background(), []sampleRecord{record}, nil, []string{"name"})
@@ -105,7 +105,7 @@ func TestGenericRepositoryUpsertValidation(t *testing.T) {
 }
 
 func TestGenericRepositoryRejectsUnsafeColumns(t *testing.T) {
-	repo := New[sampleRecord](newDryRunDB(t))
+	repo := NewRepository[sampleRecord](newDryRunDB(t))
 	ctx := context.Background()
 
 	if _, err := repo.GetOneByField(ctx, "name OR 1=1", "Jane"); err == nil || !strings.Contains(err.Error(), "invalid column") {
@@ -123,7 +123,7 @@ func TestGenericRepositoryRejectsUnsafeColumns(t *testing.T) {
 }
 
 func TestGenericRepositoryGetAllDryRunAppliesQueryOptions(t *testing.T) {
-	repo := New[sampleRecord](newDryRunDB(t))
+	repo := NewRepository[sampleRecord](newDryRunDB(t))
 	params := filter.BaseParams{
 		Search:         "jane",
 		Filters:        map[string]any{"status": "active", "ignored": "x"},
@@ -151,7 +151,7 @@ func TestGenericRepositoryGetAllDryRunAppliesQueryOptions(t *testing.T) {
 }
 
 func TestGenericRepositoryGetAllRejectsInvalidOrdering(t *testing.T) {
-	repo := New[sampleRecord](newDryRunDB(t))
+	repo := NewRepository[sampleRecord](newDryRunDB(t))
 
 	_, _, err := repo.GetAll(context.Background(), filter.BaseParams{
 		OrderBy:        "unsafe_column",

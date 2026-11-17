@@ -36,7 +36,7 @@ linters:
       locale: US
   exclusions:
     rules:
-      - path: messages/message.go
+      - path: internal/messages/message.go
         linters:
           - gosec
         text: "G101: Potential hardcoded credentials"

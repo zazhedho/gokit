@@ -1,9 +1,9 @@
-package middlewares
+package middleware
 
 import (
 	"fmt"
-	"github.com/zazhedho/gokit/response"
-	"github.com/zazhedho/gokit/utils"
+	"github.com/zazhedho/gokit/internal/response"
+	"github.com/zazhedho/gokit/internal/utils"
 	"github.com/zazhedho/logus"
 	"net/http"
 
