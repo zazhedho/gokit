@@ -53,9 +53,17 @@ func FirstNonEmptyString(values ...string) string { return utils.FirstNonEmptySt
 // GenerateLogId returns the request ID for ctx as resolved by logus.
 func GenerateLogId(ctx context.Context) uuid.UUID { return utils.GenerateLogId(ctx) }
 
-// GetEnv reads an environment variable converted to T, returning def when it
-// is unset or invalid.
+// GetEnv reads an environment variable converted to T. Unset or blank returns
+// def; an unparsable value returns def and is reported by EnvErrors. Durations
+// accept 60 (seconds), 30s, 1m, 1h and "eod".
 func GetEnv[T any](key string, def T) T { return utils.GetEnv(key, def) }
+
+// EnvErrors returns every variable GetEnv could not parse, or nil. Call it once
+// after loading configuration and refuse to start when it is non-nil.
+func EnvErrors() error { return utils.EnvErrors() }
+
+// ResetEnvErrors clears what EnvErrors reports; meant for tests.
+func ResetEnvErrors() { utils.ResetEnvErrors() }
 
 // GetRequestID returns the request ID stored in ctx as a string.
 func GetRequestID(ctx context.Context) string { return utils.GetRequestID(ctx) }
