@@ -9,7 +9,7 @@ require (
 	github.com/go-redis/redismock/v9 v9.2.0
 	github.com/google/uuid v1.6.0
 	github.com/redis/go-redis/v9 v9.23.0
-	github.com/zazhedho/logus v0.1.1
+	github.com/zazhedho/logus v0.2.0
 	golang.org/x/text v0.44.0
 	gorm.io/driver/postgres v1.6.3
 	gorm.io/gorm v1.31.2
