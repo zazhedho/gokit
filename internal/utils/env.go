@@ -1,18 +1,61 @@
 package utils
 
 import (
+	"errors"
+	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
+var (
+	envErrMu sync.Mutex
+	envErrs  = map[string]string{}
+)
+
+// EnvErrors reports every variable GetEnv could not parse, so a service can
+// refuse to start on a typo instead of running on a silent default.
+func EnvErrors() error {
+	envErrMu.Lock()
+	defer envErrMu.Unlock()
+	if len(envErrs) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(envErrs))
+	for k := range envErrs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	errs := make([]error, 0, len(keys))
+	for _, k := range keys {
+		errs = append(errs, fmt.Errorf("%s must be a valid %s", k, envErrs[k]))
+	}
+	return errors.Join(errs...)
+}
+
+// ResetEnvErrors clears the recorded errors; meant for tests.
+func ResetEnvErrors() {
+	envErrMu.Lock()
+	defer envErrMu.Unlock()
+	clear(envErrs)
+}
+
+func recordEnvError(key, kind string) {
+	envErrMu.Lock()
+	defer envErrMu.Unlock()
+	envErrs[key] = kind
+}
+
+// GetEnv treats an unset or blank variable as absent and returns def. An
+// unparsable value also returns def but is recorded for EnvErrors.
 func GetEnv[T any](key string, def T) T {
-	val, ok := os.LookupEnv(key)
-	if !ok {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
 		return def
 	}
-	val = strings.TrimSpace(val)
 
 	switch any(def).(type) {
 	case int:
@@ -67,8 +110,11 @@ func GetEnv[T any](key string, def T) T {
 		if sec, err := strconv.ParseInt(val, 10, 64); err == nil {
 			return any(time.Duration(sec) * time.Second).(T)
 		}
+		recordEnvError(key, "duration such as 60, 30s, 1m or 1h")
+		return def
 	}
 
+	recordEnvError(key, fmt.Sprintf("%T", def))
 	return def
 }
 

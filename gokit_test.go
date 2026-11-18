@@ -38,6 +38,8 @@ var (
 	_ func(...string) string                                    = gokit.FirstNonEmptyString
 	_ func(context.Context) uuid.UUID                           = gokit.GenerateLogId
 	_ func(string, int) int                                     = gokit.GetEnv[int]
+	_ func() error                                              = gokit.EnvErrors
+	_ func()                                                    = gokit.ResetEnvErrors
 	_ func(context.Context) string                              = gokit.GetRequestID
 	_ func(string) string                                       = gokit.HumanizeKey
 	_ func(string) *int64                                       = gokit.Int64PtrFromString

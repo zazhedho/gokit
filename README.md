@@ -34,7 +34,7 @@ The implementation lives under `internal/` and is not importable; only the `goki
 
 | Group | Contents |
 | --- | --- |
-| Helpers (`gokit.go`) | Environment (`GetEnv`, `DurationFromEnv`, `EnvKey`), UUID and request-id helpers (`CreateUUID`, `ValidateUUID`, `GenerateLogId`, `WithRequestID`, `GetRequestID`), string and pointer helpers, JSON helpers, validation error formatting (`ValidateError`), and redaction (`RedactSensitivePayload`, `IsSensitiveKey`). |
+| Helpers (`gokit.go`) | Environment (`GetEnv`, `EnvErrors`, `ResetEnvErrors`, `DurationFromEnv`, `EnvKey`), UUID and request-id helpers (`CreateUUID`, `ValidateUUID`, `GenerateLogId`, `WithRequestID`, `GetRequestID`), string and pointer helpers, JSON helpers, validation error formatting (`ValidateError`), and redaction (`RedactSensitivePayload`, `IsSensitiveKey`). |
 | HTTP (`http.go`) | Response envelope (`Response`, `ErrorResponse`, `InternalServerError`, `PaginationResponse`, ...), `Msg*` message constants, middlewares (`CORS`, `SetContextId`, `ErrorHandler`, `IPRateLimitMiddleware`, `EndpointRateLimitMiddleware`), and request helpers `BindJSON` and `ValidateUUIDParam`. |
 | Data (`data.go`) | Query parsing and filter whitelisting (`BaseParams`, `GetBaseParams`, `WhitelistFilter`, `WhitelistStringFilter`), the GORM-backed `Repository[T]` (`NewRepository`, `QueryOptions`, `SearchFunc`, `BuildSearchFunc`), and the `CRUDRepository[T]` interface. |
 
@@ -115,3 +115,21 @@ make lint
 ```
 
 logus is a required dependency of gokit.
+
+## Reading configuration
+
+`GetEnv` is the single way to read an environment variable:
+
+```go
+timeout := gokit.GetEnv("HTTP_READ_TIMEOUT", 30*time.Second) // 60, 30s, 1m, 1h, "eod"
+conns := gokit.GetEnv("DB_MAX_OPEN_CONNS", 100)
+mode := gokit.GetEnv("DB_SSLMODE", "disable")
+
+if err := gokit.EnvErrors(); err != nil {
+	return fmt.Errorf("invalid configuration: %w", err) // refuse to start on a typo
+}
+```
+
+- An unset or blank variable returns the default.
+- An unparsable value also returns the default, and `EnvErrors` reports it by name. The value itself is never included.
+- Tests that set invalid values can call `ResetEnvErrors`.
