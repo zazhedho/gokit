@@ -16,7 +16,9 @@ import (
 	"github.com/zazhedho/logus"
 )
 
-// IPRateLimitMiddleware applies a simple Redis-backed rate limit per client IP
+// IPRateLimitMiddleware applies a Redis-backed rate limit per client IP. It
+// passes requests through when the client is nil or limit/window is not
+// positive.
 func IPRateLimitMiddleware(redisClient *redis.Client, prefix string, limit int, window time.Duration) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if redisClient == nil || limit <= 0 || window <= 0 {
@@ -60,7 +62,9 @@ func IPRateLimitMiddleware(redisClient *redis.Client, prefix string, limit int, 
 	}
 }
 
-// EndpointRateLimitMiddleware applies rate limiting per endpoint and IP
+// EndpointRateLimitMiddleware applies a Redis-backed rate limit per route and
+// client IP. It passes requests through when the client is nil or limit/window
+// is not positive.
 func EndpointRateLimitMiddleware(redisClient *redis.Client, limit int, window time.Duration) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if redisClient == nil || limit <= 0 || window <= 0 {

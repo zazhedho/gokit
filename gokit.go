@@ -6,10 +6,6 @@
 // lives under internal/ and may change without notice.
 //
 //	import "github.com/zazhedho/gokit"
-//
-// The API is grouped across three files: gokit.go (general helpers), http.go
-// (response envelope, messages, middleware and request binding) and data.go
-// (filters and the generic repository).
 package gokit
 
 import (
@@ -50,7 +46,7 @@ func DurationFromEnv(keys []string, fallback time.Duration) time.Duration {
 	return utils.DurationFromEnv(keys, fallback)
 }
 
-// EmptyJSON returns an empty JSON object.
+// EmptyJSON returns the raw JSON object "{}".
 func EmptyJSON() json.RawMessage { return utils.EmptyJSON() }
 
 // EnvKey upper-cases value and replaces "-", "." and spaces with "_".
@@ -128,10 +124,11 @@ func StringOrDefault(value, fallback string) string { return utils.StringOrDefau
 // StringPtrIfNotEmpty returns a pointer to value, or nil when it is empty.
 func StringPtrIfNotEmpty(value string) *string { return utils.StringPtrIfNotEmpty(value) }
 
-// StripHTML removes HTML tags from s.
+// StripHTML removes script and style blocks and tags from s, unescapes HTML
+// entities and collapses whitespace.
 func StripHTML(s string) string { return utils.StripHTML(s) }
 
-// TitleCase converts s to title case.
+// TitleCase converts s to title case using English casing rules.
 func TitleCase(s string) string { return utils.TitleCase(s) }
 
 // TitleHumanized humanizes a key and converts it to title case.

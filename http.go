@@ -35,7 +35,7 @@ const (
 // ApiResponse is the standard JSON response envelope.
 type ApiResponse = response.ApiResponse
 
-// Error is the envelope type used for error responses.
+// Error has the same shape as ApiResponse, for use as a distinct error type.
 type Error = response.Error
 
 // Errors is a code and message pair for error details.
@@ -44,10 +44,10 @@ type Errors = response.Errors
 // PaginatedResponse is the JSON envelope for paginated lists.
 type PaginatedResponse = response.PaginatedResponse
 
-// Pagination is the envelope type used for paginated responses.
+// Pagination has the same shape as PaginatedResponse, for use as a distinct type.
 type Pagination = response.Pagination
 
-// Success is the envelope type used for success responses.
+// Success has the same shape as ApiResponse, for use as a distinct success type.
 type Success = response.Success
 
 // ErrorResponse builds an error envelope with a public error detail.
@@ -78,7 +78,8 @@ func PaginationResponse(code, total, page, perPage int, logId uuid.UUID, data an
 	return response.PaginationResponse(code, total, page, perPage, logId, data)
 }
 
-// CORS returns the CORS middleware.
+// CORS returns middleware that allows any origin and answers OPTIONS preflight
+// requests with 204.
 func CORS() gin.HandlerFunc { return middleware.CORS() }
 
 // EndpointRateLimitMiddleware limits requests per endpoint using Redis. A nil
@@ -96,7 +97,9 @@ func IPRateLimitMiddleware(redisClient *redis.Client, prefix string, limit int, 
 	return middleware.IPRateLimitMiddleware(redisClient, prefix, limit, window)
 }
 
-// SetContextId returns middleware that assigns a request ID to each request.
+// SetContextId returns middleware that assigns each request an ID: a valid
+// UUID from the X-Request-ID header, otherwise a new one. The ID is stored
+// under CtxKeyId and echoed in the X-Request-ID response header.
 func SetContextId() gin.HandlerFunc { return middleware.SetContextId() }
 
 // BindJSON binds the request body into req and writes a 400 envelope on failure.
