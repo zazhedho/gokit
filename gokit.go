@@ -1,11 +1,6 @@
-// Package gokit is a small toolkit of shared building blocks for Go HTTP
-// services: general helpers, a JSON response envelope, Gin middleware and a
-// generic GORM repository.
-//
-// Everything is available from this single import path; the implementation
-// lives under internal/ and may change without notice.
-//
-//	import "github.com/zazhedho/gokit"
+// Package gokit is a toolkit for Go HTTP services: helpers, a JSON response
+// envelope, Gin middleware and a generic GORM repository. Import this path only;
+// internal/ may change without notice.
 package gokit
 
 import (

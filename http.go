@@ -97,9 +97,8 @@ func IPRateLimitMiddleware(redisClient *redis.Client, prefix string, limit int, 
 	return middleware.IPRateLimitMiddleware(redisClient, prefix, limit, window)
 }
 
-// SetContextId returns middleware that assigns each request an ID: a valid
-// UUID from the X-Request-ID header, otherwise a new one. The ID is stored
-// under CtxKeyId and echoed in the X-Request-ID response header.
+// // SetContextId assigns each request an ID (a valid X-Request-ID UUID, else new),
+// // stored under CtxKeyId and echoed in the X-Request-ID response header.
 func SetContextId() gin.HandlerFunc { return middleware.SetContextId() }
 
 // BindJSON binds the request body into req and writes a 400 envelope on failure.

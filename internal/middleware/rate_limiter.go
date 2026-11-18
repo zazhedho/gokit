@@ -16,9 +16,8 @@ import (
 	"github.com/zazhedho/logus"
 )
 
-// IPRateLimitMiddleware applies a Redis-backed rate limit per client IP. It
-// passes requests through when the client is nil or limit/window is not
-// positive.
+// // IPRateLimitMiddleware rate-limits per client IP via Redis; it passes through
+// // when the client is nil or limit/window is not positive.
 func IPRateLimitMiddleware(redisClient *redis.Client, prefix string, limit int, window time.Duration) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if redisClient == nil || limit <= 0 || window <= 0 {
@@ -62,9 +61,8 @@ func IPRateLimitMiddleware(redisClient *redis.Client, prefix string, limit int, 
 	}
 }
 
-// EndpointRateLimitMiddleware applies a Redis-backed rate limit per route and
-// client IP. It passes requests through when the client is nil or limit/window
-// is not positive.
+// // EndpointRateLimitMiddleware rate-limits per route and client IP via Redis; it
+// // passes through when the client is nil or limit/window is not positive.
 func EndpointRateLimitMiddleware(redisClient *redis.Client, limit int, window time.Duration) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if redisClient == nil || limit <= 0 || window <= 0 {
@@ -109,12 +107,9 @@ func EndpointRateLimitMiddleware(redisClient *redis.Client, limit int, window ti
 	}
 }
 
-// ensureWindowExpiry guarantees the counter key carries a TTL. It sets the
-// window expiry on the first hit and, on later hits, re-applies it when Redis
-// reports the key has no TTL (-1), so a failed first EXPIRE cannot leave the
-// key immortal. The calls use a context detached from the request's
-// cancellation, keeping a 2 second timeout. It returns the remaining TTL when
-// known (0 if unknown).
+// ensureWindowExpiry guarantees the counter key has a TTL (re-applied if Redis
+// reports -1) so a failed first EXPIRE cannot leave it immortal. It uses a
+// detached 2s context and returns the remaining TTL, or 0 if unknown.
 func ensureWindowExpiry(ctx *gin.Context, redisClient *redis.Client, key string, window time.Duration, current int64, logPrefix string) time.Duration {
 	expCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx.Request.Context()), 2*time.Second)
 	defer cancel()
