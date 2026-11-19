@@ -300,7 +300,7 @@ These describe current behavior. Configure around them as needed.
 
 ## Versioning
 
-gokit follows semantic versioning and is pre-1.0 (currently v0.4.0): a minor version bump (v0.4 to v0.5) may change the API, and a patch release (v0.4.0 to v0.4.1) never does. Pin a minor version and read release notes before upgrading.
+gokit follows semantic versioning and is pre-1.0: a minor version bump (for example v0.4 to v0.5) may change the API, and a patch release never does. Pin a minor version and read release notes before upgrading.
 
 ## Development
 
