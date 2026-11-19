@@ -2,7 +2,6 @@ package filter
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -124,18 +123,5 @@ func WhitelistFilter(filters map[string]any, allowed []string) map[string]any {
 }
 
 func WhitelistStringFilter(filters map[string]any, allowed []string) map[string]any {
-	return whitelistTransform(filters, allowed, func(v any) any {
-		switch t := v.(type) {
-		case nil:
-			return ""
-		case string:
-			return t
-		case fmt.Stringer:
-			return t.String()
-		case []string:
-			return strings.Join(t, ",")
-		default:
-			return fmt.Sprintf("%v", v)
-		}
-	})
+	return whitelistTransform(filters, allowed, func(v any) any { return utils.ToString(v) })
 }

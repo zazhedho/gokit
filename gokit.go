@@ -41,19 +41,33 @@ func DurationFromEnv(keys []string, fallback time.Duration) time.Duration {
 // RequestID returns the request ID for ctx as resolved by logus.
 func RequestID(ctx context.Context) uuid.UUID { return utils.RequestID(ctx) }
 
+// EnvValue is the set of types GetEnv can read: the integer kinds up to 64
+// bits, float32, float64, bool, string and []string, including named types
+// built on them. time.Duration is accepted as an int64 kind and parsed as a
+// duration.
+type EnvValue = utils.EnvValue
+
 // GetEnv reads an environment variable converted to T. Unset or blank returns
-// def; an unparsable value returns def and is reported by EnvErrors. Durations
-// accept 60 (seconds), 30s, 1m, 1h and "eod".
-func GetEnv[T any](key string, def T) T { return utils.GetEnv(key, def) }
+// def; an unparsable value (including NaN, Inf and integer overflow) returns def
+// and is reported by EnvErrors. A []string is comma-separated with blanks
+// dropped. Durations accept 60 (seconds), 30s, 1m, 1h and "eod" (see
+// SetEODLocation).
+func GetEnv[T EnvValue](key string, def T) T { return utils.GetEnv(key, def) }
+
+// SetEODLocation sets the zone in which a "eod" duration ends (23:59:59 of the
+// current day there). The default, and the result of passing nil, is the
+// process's local zone (time.Local).
+func SetEODLocation(loc *time.Location) { utils.SetEODLocation(loc) }
 
 // EnvErrors returns every variable GetEnv could not parse, or nil. Call it once
 // after loading configuration and refuse to start when it is non-nil.
 func EnvErrors() error { return utils.EnvErrors() }
 
-// ResetEnvErrors clears what EnvErrors reports; meant for tests.
-func ResetEnvErrors() { utils.ResetEnvErrors() }
-
-// InterfaceString converts a dynamic value to a string.
+// InterfaceString converts a dynamic value to a string: nil and nil pointers
+// give "", strings and bytes pass through, fmt.Stringer and error use their
+// text, []string is comma-joined, numbers keep their exact decimal form, and
+// anything else is JSON-encoded. ConvertValuesToString and WhitelistStringFilter
+// use the same rules.
 func InterfaceString(data any) string { return utils.InterfaceString(data) }
 
 // JSONEncode marshals data to a JSON string, returning "" on failure.
