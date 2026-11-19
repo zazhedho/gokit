@@ -25,8 +25,13 @@ func scoped(query *gorm.DB, apply func(*gorm.DB) *gorm.DB) *gorm.DB {
 	}
 
 	result := apply(query)
-	if result == nil || result.Statement != query.Statement {
-		return result
+	if result == nil {
+		return nil
+	}
+	if result.Statement != query.Statement {
+		// A new session would escape the grouping, so refuse it.
+		_ = query.AddError(fmt.Errorf("%w: BaseQuery and Search must extend the query they receive", ErrInvalidQueryOptions))
+		return query
 	}
 	c, ok := result.Statement.Clauses["WHERE"]
 	if !ok {
@@ -136,7 +141,7 @@ func bindValue(v any) any {
 	return n.String()
 }
 
-func applyOrdering(query *gorm.DB, params filter.BaseParams, opts QueryOptions, key string) (*gorm.DB, error) {
+func applyOrdering(query *gorm.DB, params filter.BaseParams, opts QueryOptions, table, key string) (*gorm.DB, error) {
 	var orders []orderSpec
 
 	if params.OrderBy != "" && params.OrderDirection != "" {
@@ -161,7 +166,7 @@ func applyOrdering(query *gorm.DB, params filter.BaseParams, opts QueryOptions, 
 	hasKey := false
 	for _, o := range orders {
 		query = query.Order(o.clause())
-		if _, name, ok := strings.Cut(o.column, "."); (ok && name == key) || o.column == key {
+		if o.column == key || o.column == table+"."+key {
 			hasKey = true
 		}
 	}

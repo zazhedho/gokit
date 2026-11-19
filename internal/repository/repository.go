@@ -69,6 +69,19 @@ func notDeleted(s *schema.Schema) (clause.Expression, bool) {
 	return clause.Eq{Column: keyColumn(deletedAtColumn), Value: nil}, true
 }
 
+// live scopes reads to rows not marked deleted through a plain deleted_at
+// column, so reads agree with Update and SoftDelete.
+func (r *Repository[T]) live(query *gorm.DB) (*gorm.DB, error) {
+	s, err := r.schema()
+	if err != nil {
+		return nil, err
+	}
+	if cond, ok := notDeleted(s); ok {
+		query = query.Where(cond)
+	}
+	return query, nil
+}
+
 func (r *Repository[T]) byKey(ctx context.Context, id any) (*gorm.DB, error) {
 	key, err := r.key()
 	if err != nil {
@@ -99,14 +112,14 @@ func (r *Repository[T]) Upsert(ctx context.Context, values []T, conflictColumns,
 		return errors.New("update columns are required")
 	}
 	for _, column := range slices.Concat(conflictColumns, updateColumns) {
-		if err := validateColumn(column); err != nil {
-			return err
+		if !isSafeSegment(column) {
+			return fmt.Errorf("invalid column: %q (upsert columns must be plain names)", column)
 		}
 	}
 
 	columns := make([]clause.Column, len(conflictColumns))
 	for i, column := range conflictColumns {
-		columns[i] = columnOf(column)
+		columns[i] = clause.Column{Name: column}
 	}
 	batch := r.DB.CreateBatchSize
 	if batch <= 0 {
@@ -122,6 +135,9 @@ func (r *Repository[T]) Upsert(ctx context.Context, values []T, conflictColumns,
 // GetByID returns the row whose key column equals id, or ErrNotFound.
 func (r *Repository[T]) GetByID(ctx context.Context, id string) (ret T, err error) {
 	query, err := r.byKey(ctx, id)
+	if err == nil {
+		query, err = r.live(query)
+	}
 	if err != nil {
 		return ret, err
 	}
@@ -137,7 +153,11 @@ func (r *Repository[T]) GetOneByField(ctx context.Context, field string, value a
 	if err = validateColumn(field); err != nil {
 		return ret, err
 	}
-	if err = r.db(ctx).Where(whereEq(field, value)).First(&ret).Error; err != nil {
+	query, err := r.live(r.db(ctx).Where(whereEq(field, value)))
+	if err != nil {
+		return ret, err
+	}
+	if err = query.First(&ret).Error; err != nil {
 		return zeroValue[T](), err
 	}
 	return ret, nil
@@ -155,7 +175,10 @@ func (r *Repository[T]) GetManyByField(ctx context.Context, field string, value 
 		return nil, err
 	}
 
-	query := r.db(ctx).Where(whereEq(field, value))
+	query, err := r.live(r.db(ctx).Where(whereEq(field, value)))
+	if err != nil {
+		return nil, err
+	}
 	if order != "" {
 		spec, err := parseOrder(order)
 		if err != nil {
@@ -195,7 +218,10 @@ func (r *Repository[T]) ExistsByFields(ctx context.Context, filters map[string]a
 	}
 	slices.Sort(keys)
 
-	query := r.db(ctx).Model(new(T))
+	query, err := r.live(r.db(ctx).Model(new(T)))
+	if err != nil {
+		return false, err
+	}
 	for _, key := range keys {
 		query = query.Where(whereEq(key, filters[key]))
 	}
@@ -225,7 +251,14 @@ func (r *Repository[T]) GetAll(ctx context.Context, params filter.BaseParams, op
 		return nil, 0, err
 	}
 
-	query := r.db(ctx).Model(new(T))
+	sch, err := r.schema()
+	if err != nil {
+		return nil, 0, err
+	}
+	query, err := r.live(r.db(ctx).Model(new(T)))
+	if err != nil {
+		return nil, 0, err
+	}
 	if opts.BaseQuery != nil {
 		query = scoped(query, opts.BaseQuery)
 	}
@@ -248,7 +281,7 @@ func (r *Repository[T]) GetAll(ctx context.Context, params filter.BaseParams, op
 		return nil, 0, err
 	}
 
-	page, err := applyOrdering(base, params, opts, key)
+	page, err := applyOrdering(base, params, opts, sch.Table, key)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -306,6 +339,15 @@ func (r *Repository[T]) Update(ctx context.Context, m *T) error {
 		if s.LookUpField(column) != nil {
 			omit = append(omit, column)
 		}
+	}
+	writable := 0
+	for _, name := range s.DBNames {
+		if f := s.LookUpField(name); !slices.Contains(omit, name) && f != nil && f.Updatable {
+			writable++
+		}
+	}
+	if writable == 0 {
+		return errors.New("update has no writable columns besides the key")
 	}
 
 	query := r.db(ctx).Model(new(T)).Select("*").Omit(omit...).

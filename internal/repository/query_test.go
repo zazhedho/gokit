@@ -96,7 +96,7 @@ func TestGetAllAppendsPrimaryKeyTieBreaker(t *testing.T) {
 		},
 		"default orders": {
 			filter.BaseParams{Limit: 5, Page: 1},
-			QueryOptions{DefaultOrders: []string{"status asc", "name desc"}},
+			QueryOptions{DefaultOrders: []string{"status asc", "name desc"}, AllowedOrderColumns: []string{"status", "name"}},
 			`ORDER BY "status","name" DESC,"sample_records"."id"`,
 		},
 		"no order": {
@@ -158,12 +158,14 @@ func TestQueryOptionsValidate(t *testing.T) {
 		t.Fatalf("valid options rejected: %v", err)
 	}
 	for name, opts := range map[string]QueryOptions{
-		"filter key":      {AllowedFilters: []string{"status", "x) OR 1=1"}},
-		"order column":    {AllowedOrderColumns: []string{"name;"}},
-		"default order":   {DefaultOrders: []string{"name sideways"}},
-		"default shape":   {DefaultOrders: []string{"name"}},
-		"negative limit":  {MaxLimit: -1},
-		"negative search": {MaxSearchLength: -1},
+		"filter key":                 {AllowedFilters: []string{"status", "x) OR 1=1"}},
+		"order column":               {AllowedOrderColumns: []string{"name;"}},
+		"default order":              {DefaultOrders: []string{"name sideways"}},
+		"default shape":              {DefaultOrders: []string{"name"}},
+		"default not allowed":        {AllowedOrderColumns: []string{"id"}, DefaultOrders: []string{"name asc"}},
+		"default without allow-list": {DefaultOrders: []string{"name asc"}},
+		"negative limit":             {MaxLimit: -1},
+		"negative search":            {MaxSearchLength: -1},
 	} {
 		if err := opts.Validate(); !errors.Is(err, ErrInvalidQueryOptions) {
 			t.Errorf("%s: got %v, want ErrInvalidQueryOptions", name, err)
@@ -289,6 +291,33 @@ func TestPageSizeMatchesGetAll(t *testing.T) {
 	} {
 		if got := tc.opts.PageSize(filter.BaseParams{Limit: tc.limit}); got != tc.want {
 			t.Errorf("PageSize(limit=%d, %+v) = %d, want %d", tc.limit, tc.opts, got, tc.want)
+		}
+	}
+}
+
+func TestGetAllRejectsBaseQueryThatLosesGrouping(t *testing.T) {
+	_, _, err := NewRepository[sampleRecord](newDryRunDB(t)).GetAll(context.Background(), filter.BaseParams{Limit: 1},
+		QueryOptions{BaseQuery: func(q *gorm.DB) *gorm.DB { return q.Session(&gorm.Session{NewDB: true}).Model(&sampleRecord{}) }})
+	if !errors.Is(err, ErrInvalidQueryOptions) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestTieBreakerComparesTheTableQualifier(t *testing.T) {
+	for name, tc := range map[string]struct{ orderBy, want string }{
+		"own table":   {"sample_records.id", `ORDER BY "sample_records"."id" DESC LIMIT`},
+		"other table": {"other.id", `ORDER BY "other"."id" DESC,"sample_records"."id" LIMIT`},
+	} {
+		db, mock := newMockDB(t, nil)
+		expectList(mock, regexp.QuoteMeta(tc.want))
+		_, _, err := NewRepository[sampleRecord](db).GetAll(context.Background(),
+			filter.BaseParams{OrderBy: tc.orderBy, OrderDirection: "desc", Limit: 5, Page: 1},
+			QueryOptions{AllowedOrderColumns: []string{tc.orderBy}})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatalf("%s: %v", name, err)
 		}
 	}
 }

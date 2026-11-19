@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -322,12 +323,14 @@ func TestUpsertValidation(t *testing.T) {
 		t.Fatalf("empty upsert: %v", err)
 	}
 	for name, args := range map[string][2][]string{
-		"no conflict":    {nil, {"name"}},
-		"no update":      {{"id"}, nil},
-		"bad conflict":   {{"id OR 1=1"}, {"name"}},
-		"bad update":     {{"id"}, {"name; --"}},
-		"padded":         {{"id"}, {" name"}},
-		"too many parts": {{"a.b.c"}, {"name"}},
+		"no conflict":        {nil, {"name"}},
+		"no update":          {{"id"}, nil},
+		"bad conflict":       {{"id OR 1=1"}, {"name"}},
+		"bad update":         {{"id"}, {"name; --"}},
+		"padded":             {{"id"}, {" name"}},
+		"too many parts":     {{"a.b.c"}, {"name"}},
+		"qualified update":   {{"id"}, {"t.name"}},
+		"qualified conflict": {{"t.id"}, {"name"}},
 	} {
 		if err := repo.Upsert(ctx(), one, args[0], args[1]); err == nil {
 			t.Errorf("%s must be rejected", name)
@@ -340,5 +343,48 @@ func TestGetByIDMapsNotFound(t *testing.T) {
 	mock.ExpectQuery(`SELECT`).WillReturnRows(idRows())
 	if _, err := NewRepository[sampleRecord](db).GetByID(ctx(), "x"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestReadsSkipPlainSoftDeletedRows(t *testing.T) {
+	const live = `"flag_records"."deleted_at" IS NULL`
+	db, mock := newMockDB(t, nil)
+	repo := NewRepository[flagRecord](db)
+	flagRows := func() *sqlmock.Rows { return sqlmock.NewRows([]string{"id"}).AddRow("1") }
+
+	mock.ExpectQuery(`WHERE "flag_records"."id" = \$1 AND ` + regexp.QuoteMeta(live)).WillReturnRows(flagRows())
+	if _, err := repo.GetByID(ctx(), "1"); err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectQuery(`WHERE "name" = \$1 AND ` + regexp.QuoteMeta(live)).WillReturnRows(flagRows())
+	if _, err := repo.GetOneByField(ctx(), "name", "x"); err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectQuery(`WHERE "name" = \$1 AND ` + regexp.QuoteMeta(live)).WillReturnRows(flagRows())
+	if _, err := repo.GetManyByField(ctx(), "name", "x", 5, ""); err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta(live) + ` AND "name" = \$1`).WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+	if ok, err := repo.ExistsByField(ctx(), "name", "x"); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "flag_records" WHERE ` + regexp.QuoteMeta(live)).WillReturnRows(countRows(1))
+	mock.ExpectQuery(`WHERE ` + regexp.QuoteMeta(live)).WillReturnRows(flagRows())
+	if _, _, err := repo.GetAll(ctx(), baseParams(), QueryOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpdateWithNothingToWriteIsNotNotFound(t *testing.T) {
+	type keyOnly struct {
+		ID string `gorm:"column:id;primaryKey"`
+	}
+	db, _ := newMockDB(t, nil)
+	err := NewRepository[keyOnly](db).Update(ctx(), &keyOnly{ID: "1"})
+	if err == nil || errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected a distinct error, got %v", err)
 	}
 }
