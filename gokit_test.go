@@ -15,7 +15,6 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 	"github.com/zazhedho/gokit"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -54,10 +53,10 @@ var (
 	_ func(int, string, uuid.UUID, any) *gokit.APIResponse                     = gokit.Response
 	_ func(uuid.UUID, string) *gokit.APIResponse                               = gokit.Unauthorized
 	_ func(int, int64, int, int, uuid.UUID, any) *gokit.PaginatedResponse      = gokit.PaginationResponse
-	_ func() gin.HandlerFunc                                                   = gokit.CORS
-	_ func(*redis.Client, int, time.Duration) gin.HandlerFunc                  = gokit.EndpointRateLimitMiddleware
+	_ func(gokit.CORSOptions) gin.HandlerFunc                                  = gokit.CORS
+	_ func(gokit.RateLimitOptions) gin.HandlerFunc                             = gokit.EndpointRateLimit
 	_ func() gin.HandlerFunc                                                   = gokit.Recovery
-	_ func(*redis.Client, string, int, time.Duration) gin.HandlerFunc          = gokit.IPRateLimitMiddleware
+	_ func(gokit.RateLimitOptions) gin.HandlerFunc                             = gokit.IPRateLimit
 	_ func() gin.HandlerFunc                                                   = gokit.RequestIDMiddleware
 	_ func(*gin.Context, uuid.UUID, string, *record, ...gokit.BindOption) bool = gokit.BindJSON[record]
 	_ func(*gin.Context, uuid.UUID) (string, error)                            = gokit.ValidateUUIDParam
@@ -135,8 +134,8 @@ func TestValidateUUIDSentinels(t *testing.T) {
 func TestRateLimiterNilRedisPassesThrough(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for name, mw := range map[string]gin.HandlerFunc{
-		"ip":       gokit.IPRateLimitMiddleware(nil, "p", 1, time.Minute),
-		"endpoint": gokit.EndpointRateLimitMiddleware(nil, 1, time.Minute),
+		"ip":       gokit.IPRateLimit(gokit.RateLimitOptions{Prefix: "p", Limit: 1, Window: time.Minute}),
+		"endpoint": gokit.EndpointRateLimit(gokit.RateLimitOptions{Limit: 1, Window: time.Minute}),
 	} {
 		r := gin.New()
 		r.Use(mw)

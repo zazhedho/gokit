@@ -1,11 +1,8 @@
 package gokit
 
 import (
-	"time"
-
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 	"github.com/zazhedho/gokit/internal/binding"
 	"github.com/zazhedho/gokit/internal/messages"
 	"github.com/zazhedho/gokit/internal/middleware"
@@ -72,26 +69,48 @@ func PaginationResponse(code int, total int64, page, perPage int, logID uuid.UUI
 	return response.PaginationResponse(code, total, page, perPage, logID, data)
 }
 
-// CORS returns middleware that allows any origin and answers OPTIONS preflight
-// requests with 204.
-func CORS() gin.HandlerFunc { return middleware.CORS() }
+// CORSOptions configures CORS: allowed origins, methods and headers, exposed
+// response headers (X-Request-ID is always exposed), credentials and the
+// preflight cache age.
+type CORSOptions = middleware.CORSOptions
 
-// EndpointRateLimitMiddleware limits requests per endpoint using Redis. A nil
-// client (or a non-positive limit or window) disables limiting.
-func EndpointRateLimitMiddleware(redisClient *redis.Client, limit int, window time.Duration) gin.HandlerFunc {
-	return middleware.EndpointRateLimitMiddleware(redisClient, limit, window)
+// CORS returns CORS middleware. Requests without an Origin header pass through.
+// A real preflight (OPTIONS carrying Origin and Access-Control-Request-Method)
+// from an allowed origin gets 204 with the Allow headers, and from any other
+// origin 403; other OPTIONS requests reach your handlers. Allowed origins are
+// echoed on actual requests with the Expose headers. With no AllowOrigins no
+// origin is allowed. Combining the "*" origin with AllowCredentials panics.
+func CORS(opts CORSOptions) gin.HandlerFunc { return middleware.CORS(opts) }
+
+// DefaultRateLimitTimeout bounds each Redis call of the rate limiters when
+// RateLimitOptions.Timeout is zero.
+const DefaultRateLimitTimeout = middleware.DefaultRateLimitTimeout
+
+// RateLimitOptions configures IPRateLimit and EndpointRateLimit: the Redis
+// client (any redis.Cmdable), key prefix, limit and window, an optional KeyFunc,
+// FailClosed and the Redis Timeout.
+type RateLimitOptions = middleware.RateLimitOptions
+
+// IPRateLimit allows at most opts.Limit requests per opts.Window per caller,
+// counted in Redis under rate_limit:<Prefix>:<caller>. The caller defaults to
+// gin's ClientIP (IPv6 masked to /64), which trusts forwarding headers according
+// to the engine's trusted proxies; see the README. Over the limit it answers 429
+// with Retry-After rounded up to whole seconds. The counter is one atomic Redis
+// script. A missing client, or a non-positive Limit or Window, disables limiting;
+// a Redis error lets the request through unless opts.FailClosed, which answers
+// 503. Errors are logged at most once per 10 seconds.
+func IPRateLimit(opts RateLimitOptions) gin.HandlerFunc { return middleware.IPRateLimit(opts) }
+
+// EndpointRateLimit is IPRateLimit with the counter also keyed on the route
+// pattern, so each endpoint has its own budget per caller.
+func EndpointRateLimit(opts RateLimitOptions) gin.HandlerFunc {
+	return middleware.EndpointRateLimit(opts)
 }
 
 // Recovery recovers from panics: it logs the panic and stack, and answers 500
 // with an envelope that carries only the log ID. Register it after
 // RequestIDMiddleware.
 func Recovery() gin.HandlerFunc { return middleware.Recovery() }
-
-// IPRateLimitMiddleware limits requests per client IP using Redis. A nil
-// client (or a non-positive limit or window) disables limiting.
-func IPRateLimitMiddleware(redisClient *redis.Client, prefix string, limit int, window time.Duration) gin.HandlerFunc {
-	return middleware.IPRateLimitMiddleware(redisClient, prefix, limit, window)
-}
 
 // RequestIDMiddleware assigns each request an ID (a valid X-Request-ID UUID,
 // else a new one), stores it under CtxKeyRequestID and on the request context,

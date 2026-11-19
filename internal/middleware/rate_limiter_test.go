@@ -1,9 +1,12 @@
 package middleware
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,184 +15,235 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func TestIPRateLimitMiddlewareBypassesWhenRedisUnavailable(t *testing.T) {
+const windowMS = int64(60000)
+
+func okHandler(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"message": "ok"}) }
+
+func newRouter(mw gin.HandlerFunc, trustProxies bool) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.GET("/register", IPRateLimitMiddleware(nil, "register", 1, time.Minute), func(ctx *gin.Context) {
-		ctx.JSON(http.StatusOK, gin.H{"message": "ok"})
-	})
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/register", nil)
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	if !trustProxies {
+		_ = router.SetTrustedProxies(nil)
 	}
-}
-
-func TestEndpointRateLimitMiddlewareBypassesWhenDisabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	router.GET("/items", EndpointRateLimitMiddleware(nil, 0, time.Minute), func(ctx *gin.Context) {
-		ctx.JSON(http.StatusOK, gin.H{"message": "ok"})
-	})
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/items", nil)
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestIPRateLimitMiddlewareBlocksWhenLimitExceeded(t *testing.T) {
-	client, mock := redismock.NewClientMock()
-	key := "rate_limit:register:1.2.3.4"
-	mock.ExpectIncr(key).SetVal(2)
-	mock.ExpectTTL(key).SetVal(30 * time.Second)
-
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	router.GET("/register", IPRateLimitMiddleware(client, "register", 1, time.Minute), func(ctx *gin.Context) {
-		ctx.JSON(http.StatusOK, gin.H{"message": "ok"})
-	})
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/register", nil)
-	req.RemoteAddr = "1.2.3.4:12345"
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "30" {
-		t.Fatalf("expected 429 with retry header, got %d headers=%v body=%s", rec.Code, rec.Header(), rec.Body.String())
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("redis expectations: %v", err)
-	}
-}
-
-func TestEndpointRateLimitMiddlewareAllowsFirstRequest(t *testing.T) {
-	client, mock := redismock.NewClientMock()
-	key := "rate_limit:endpoint:/items:1.2.3.4"
-	mock.ExpectIncr(key).SetVal(1)
-	mock.ExpectExpire(key, time.Minute).SetVal(true)
-
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	router.GET("/items", EndpointRateLimitMiddleware(client, 1, time.Minute), func(ctx *gin.Context) {
-		ctx.JSON(http.StatusOK, gin.H{"message": "ok"})
-	})
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/items", nil)
-	req.RemoteAddr = "1.2.3.4:12345"
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("redis expectations: %v", err)
-	}
-}
-
-func newIPLimitRouter(client *redis.Client, limit int) *gin.Engine {
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	router.GET("/register", IPRateLimitMiddleware(client, "register", limit, time.Minute), func(ctx *gin.Context) {
-		ctx.JSON(http.StatusOK, gin.H{"message": "ok"})
-	})
+	router.GET("/items", mw, okHandler)
 	return router
 }
 
-func newEndpointLimitRouter(client *redis.Client, limit int) *gin.Engine {
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	router.GET("/items", EndpointRateLimitMiddleware(client, limit, time.Minute), func(ctx *gin.Context) {
-		ctx.JSON(http.StatusOK, gin.H{"message": "ok"})
-	})
-	return router
-}
-
-func serve(router *gin.Engine, path string) *httptest.ResponseRecorder {
+func serve(router *gin.Engine, remote string, headers map[string]string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", path, nil)
-	req.RemoteAddr = "1.2.3.4:12345"
+	req := httptest.NewRequest(http.MethodGet, "/items", nil)
+	req.RemoteAddr = remote
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	router.ServeHTTP(rec, req)
 	return rec
 }
 
-func TestIPRateLimitMiddlewareRecoversKeyWithoutTTL(t *testing.T) {
-	client, mock := redismock.NewClientMock()
-	key := "rate_limit:register:1.2.3.4"
-	mock.ExpectIncr(key).SetVal(5)
-	mock.ExpectTTL(key).SetVal(-1)
-	mock.ExpectExpire(key, time.Minute).SetVal(true)
+// expectHit registers one atomic counter call for key.
+func expectHit(mock redismock.ClientMock, key string, count, ttlMS int64) {
+	mock.ExpectEval(rateLimitScript, []string{key}, windowMS).SetVal([]any{count, ttlMS})
+}
 
-	rec := serve(newIPLimitRouter(client, 1), "/register")
-	if rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("redis expectations: %v", err)
+func TestLimitersPassThroughWhenDisabled(t *testing.T) {
+	var typedNil *redis.Client
+	client, _ := redismock.NewClientMock()
+	for name, opts := range map[string]RateLimitOptions{
+		"nil redis":       {Prefix: "p", Limit: 1, Window: time.Minute},
+		"typed nil redis": {Redis: typedNil, Prefix: "p", Limit: 1, Window: time.Minute},
+		"zero limit":      {Redis: client, Prefix: "p", Limit: 0, Window: time.Minute},
+		"zero window":     {Redis: client, Prefix: "p", Limit: 1},
+	} {
+		for kind, mw := range map[string]gin.HandlerFunc{"ip": IPRateLimit(opts), "endpoint": EndpointRateLimit(opts)} {
+			router := newRouter(mw, false)
+			for i := range 3 {
+				if rec := serve(router, "192.0.2.1:1", nil); rec.Code != http.StatusOK {
+					t.Fatalf("%s/%s: request %d got %d", name, kind, i, rec.Code)
+				}
+			}
+		}
 	}
 }
 
-func TestIPRateLimitMiddlewareExpireFailureOnFirstHitIsRetriedLater(t *testing.T) {
-	client, mock := redismock.NewClientMock()
-	key := "rate_limit:register:1.2.3.4"
-	mock.ExpectIncr(key).SetVal(1)
-	mock.ExpectExpire(key, time.Minute).SetErr(errors.New("redis blip"))
-	mock.ExpectIncr(key).SetVal(2)
-	mock.ExpectTTL(key).SetVal(-1)
-	mock.ExpectExpire(key, time.Minute).SetVal(true)
-
-	router := newIPLimitRouter(client, 5)
-	if rec := serve(router, "/register"); rec.Code != http.StatusOK {
-		t.Fatalf("first request: expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if rec := serve(router, "/register"); rec.Code != http.StatusOK {
-		t.Fatalf("second request: expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("redis expectations: %v", err)
+func TestFailClosedRejectsWhenRedisIsMissing(t *testing.T) {
+	router := newRouter(IPRateLimit(RateLimitOptions{Prefix: "p", Limit: 1, Window: time.Minute, FailClosed: true}), false)
+	rec := serve(router, "192.0.2.1:1", nil)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", rec.Code)
 	}
 }
 
-func TestEndpointRateLimitMiddlewareRecoversKeyWithoutTTL(t *testing.T) {
+func TestIPRateLimitCountsAtomicallyAndAllows(t *testing.T) {
 	client, mock := redismock.NewClientMock()
-	key := "rate_limit:endpoint:/items:1.2.3.4"
-	mock.ExpectIncr(key).SetVal(5)
-	mock.ExpectTTL(key).SetVal(-1)
-	mock.ExpectExpire(key, time.Minute).SetVal(true)
+	expectHit(mock, "rate_limit:register:192.0.2.1", 1, windowMS)
+	router := newRouter(IPRateLimit(RateLimitOptions{Redis: client, Prefix: "register", Limit: 1, Window: time.Minute}), false)
 
-	rec := serve(newEndpointLimitRouter(client, 1), "/items")
-	if rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429, got %d: %s", rec.Code, rec.Body.String())
+	if rec := serve(router, "192.0.2.1:5000", nil); rec.Code != http.StatusOK {
+		t.Fatalf("got %d: %s", rec.Code, rec.Body.String())
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("redis expectations: %v", err)
+		t.Fatalf("exactly one Eval and no separate INCR/EXPIRE/TTL calls expected: %v", err)
 	}
 }
 
-func TestEndpointRateLimitMiddlewareExpireFailureOnFirstHitIsRetriedLater(t *testing.T) {
-	client, mock := redismock.NewClientMock()
-	key := "rate_limit:endpoint:/items:1.2.3.4"
-	mock.ExpectIncr(key).SetVal(1)
-	mock.ExpectExpire(key, time.Minute).SetErr(errors.New("redis blip"))
-	mock.ExpectIncr(key).SetVal(2)
-	mock.ExpectTTL(key).SetVal(-1)
-	mock.ExpectExpire(key, time.Minute).SetVal(true)
+func TestRateLimitBlocksWithRoundedUpRetryAfter(t *testing.T) {
+	for _, tc := range []struct {
+		ttlMS int64
+		want  string
+	}{{30000, "30"}, {1500, "2"}, {1, "1"}, {59001, "60"}} {
+		client, mock := redismock.NewClientMock()
+		expectHit(mock, "rate_limit:register:192.0.2.1", 2, tc.ttlMS)
+		router := newRouter(IPRateLimit(RateLimitOptions{Redis: client, Prefix: "register", Limit: 1, Window: time.Minute}), false)
 
-	router := newEndpointLimitRouter(client, 5)
-	if rec := serve(router, "/items"); rec.Code != http.StatusOK {
-		t.Fatalf("first request: expected 200, got %d: %s", rec.Code, rec.Body.String())
+		rec := serve(router, "192.0.2.1:1", nil)
+		if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != tc.want {
+			t.Fatalf("ttl %dms: got %d Retry-After=%q", tc.ttlMS, rec.Code, rec.Header().Get("Retry-After"))
+		}
+		var body struct {
+			Error []struct{ Code, Message string } `json:"error"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || len(body.Error) != 1 || body.Error[0].Code != "too_many_requests" {
+			t.Fatalf("expected the error list shape, got %s", rec.Body.String())
+		}
 	}
-	if rec := serve(router, "/items"); rec.Code != http.StatusOK {
-		t.Fatalf("second request: expected 200, got %d: %s", rec.Code, rec.Body.String())
+}
+
+func TestEndpointRateLimitKeysOnRouteAndClient(t *testing.T) {
+	client, mock := redismock.NewClientMock()
+	expectHit(mock, "rate_limit:endpoint:/items:192.0.2.1", 2, windowMS)
+	router := newRouter(EndpointRateLimit(RateLimitOptions{Redis: client, Limit: 1, Window: time.Minute}), false)
+	if rec := serve(router, "192.0.2.1:1", nil); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("got %d", rec.Code)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("redis expectations: %v", err)
+		t.Fatal(err)
+	}
+}
+
+func TestSpoofedForwardedHeaderDoesNotChangeTheKey(t *testing.T) {
+	client, mock := redismock.NewClientMock()
+	mock.MatchExpectationsInOrder(false)
+	expectHit(mock, "rate_limit:p:192.0.2.1", 1, windowMS)
+	expectHit(mock, "rate_limit:p:192.0.2.1", 2, windowMS)
+	router := newRouter(IPRateLimit(RateLimitOptions{Redis: client, Prefix: "p", Limit: 1, Window: time.Minute}), false)
+
+	// With no trusted proxy, X-Forwarded-For is ignored: a rotating spoofed value shares one bucket.
+	serve(router, "192.0.2.1:1", map[string]string{"X-Forwarded-For": "10.0.0.1"})
+	serve(router, "192.0.2.1:2", map[string]string{"X-Forwarded-For": "10.0.0.2"})
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("spoofed headers must not create separate buckets: %v", err)
+	}
+}
+
+func TestKeyFuncOverridesTheDefault(t *testing.T) {
+	client, mock := redismock.NewClientMock()
+	expectHit(mock, "rate_limit:p:user-42", 1, windowMS)
+	router := newRouter(IPRateLimit(RateLimitOptions{
+		Redis: client, Prefix: "p", Limit: 5, Window: time.Minute,
+		KeyFunc: func(c *gin.Context) string { return c.GetHeader("X-User") },
+	}), false)
+	serve(router, "192.0.2.1:1", map[string]string{"X-User": "user-42"})
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+
+	// An empty key falls back to the client address instead of sharing one bucket.
+	expectHit(mock, "rate_limit:p:192.0.2.1", 1, windowMS)
+	serve(router, "192.0.2.1:1", nil)
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDefaultKeyMasksIPv6To64(t *testing.T) {
+	for in, want := range map[string]string{
+		"192.0.2.1":                      "192.0.2.1",
+		"2001:db8:1:2:aaaa:bbbb:cccc:1":  "2001:db8:1:2::/64",
+		"2001:db8:1:2:1111:2222:3333:99": "2001:db8:1:2::/64",
+		"::ffff:192.0.2.7":               "192.0.2.7",
+		"not-an-ip":                      "not-an-ip",
+	} {
+		if got := maskIP(in); got != want {
+			t.Errorf("maskIP(%q) = %q, want %q", in, got, want)
+		}
+	}
+
+	client, mock := redismock.NewClientMock()
+	expectHit(mock, "rate_limit:p:2001:db8:1:2::/64", 1, windowMS)
+	router := newRouter(IPRateLimit(RateLimitOptions{Redis: client, Prefix: "p", Limit: 5, Window: time.Minute}), false)
+	serve(router, "[2001:db8:1:2:dead:beef:0:1]:9", nil)
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("the default key must use the /64: %v", err)
+	}
+}
+
+func TestRedisErrorsFailOpenByDefaultAndClosedOnRequest(t *testing.T) {
+	for name, tc := range map[string]struct {
+		failClosed bool
+		want       int
+	}{"open": {false, http.StatusOK}, "closed": {true, http.StatusServiceUnavailable}} {
+		client, mock := redismock.NewClientMock()
+		mock.ExpectEval(rateLimitScript, []string{"rate_limit:p:192.0.2.1"}, windowMS).SetErr(errors.New("redis down"))
+		router := newRouter(IPRateLimit(RateLimitOptions{Redis: client, Prefix: "p", Limit: 1, Window: time.Minute, FailClosed: tc.failClosed}), false)
+		rec := serve(router, "192.0.2.1:1", nil)
+		if rec.Code != tc.want {
+			t.Fatalf("%s: got %d, want %d", name, rec.Code, tc.want)
+		}
+		if tc.failClosed && strings.Contains(rec.Body.String(), "redis down") {
+			t.Fatalf("503 body must not leak the Redis error: %s", rec.Body.String())
+		}
+	}
+}
+
+// probe is a redis.Cmdable that records the deadline of the context it is given.
+type probe struct {
+	redis.Cmdable
+	remaining time.Duration
+	calls     int
+}
+
+func (p *probe) Eval(ctx context.Context, _ string, _ []string, _ ...any) *redis.Cmd {
+	p.calls++
+	if deadline, ok := ctx.Deadline(); ok {
+		p.remaining = time.Until(deadline)
+	}
+	cmd := redis.NewCmd(ctx)
+	cmd.SetErr(errors.New("probe"))
+	return cmd
+}
+
+func TestRedisTimeoutIsConfigurableWithA200msDefault(t *testing.T) {
+	for name, tc := range map[string]struct {
+		timeout time.Duration
+		lo, hi  time.Duration
+	}{
+		"default": {0, 100 * time.Millisecond, 200 * time.Millisecond},
+		"custom":  {time.Second, 500 * time.Millisecond, time.Second},
+	} {
+		p := &probe{}
+		router := newRouter(IPRateLimit(RateLimitOptions{Redis: p, Prefix: "p", Limit: 1, Window: time.Minute, Timeout: tc.timeout}), false)
+		serve(router, "192.0.2.1:1", nil)
+		if p.calls != 1 || p.remaining <= tc.lo || p.remaining > tc.hi {
+			t.Fatalf("%s: calls=%d remaining=%v, want within (%v, %v]", name, p.calls, p.remaining, tc.lo, tc.hi)
+		}
+	}
+}
+
+func TestLimiterAcceptsAnyCmdable(t *testing.T) {
+	var _ redis.Cmdable = (*redis.ClusterClient)(nil)
+	var _ redis.Cmdable = (*redis.Client)(nil)
+	var _ redis.Cmdable = redis.Pipeliner(nil)
+	_ = IPRateLimit(RateLimitOptions{Redis: &probe{}, Limit: 1, Window: time.Second})
+}
+
+func TestRedisErrorLogIsRateLimited(t *testing.T) {
+	logs := captureLogs(t)
+	p := &probe{}
+	router := newRouter(IPRateLimit(RateLimitOptions{Redis: p, Prefix: "p", Limit: 1, Window: time.Minute}), false)
+	for range 25 {
+		serve(router, "192.0.2.1:1", nil)
+	}
+	if n := strings.Count(logs.String(), "rate limiter"); n != 1 {
+		t.Fatalf("expected one log line for 25 identical failures, got %d:\n%s", n, logs.String())
 	}
 }

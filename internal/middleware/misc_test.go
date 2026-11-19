@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -12,23 +11,6 @@ import (
 
 	"github.com/zazhedho/gokit/internal/utils"
 )
-
-func TestCORSHandlesOptionsAndSetsHeaders(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	router.Use(CORS())
-	router.GET("/ping", func(ctx *gin.Context) { ctx.String(http.StatusOK, "ok") })
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodOptions, "/ping", nil)
-	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("expected 204 for options, got %d", rec.Code)
-	}
-	if rec.Header().Get("Access-Control-Allow-Origin") != "*" {
-		t.Fatalf("expected CORS header, got %v", rec.Header())
-	}
-}
 
 func TestRequestIDMiddlewareUsesExistingRequestID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -74,21 +56,5 @@ func TestRequestIDMiddlewareSharesIDWithLogus(t *testing.T) {
 	}
 	if fromGin != want || fromRequestCtx != want || fromUtils != want {
 		t.Fatalf("ids differ: header=%s gin=%s requestCtx=%s utils=%s", want, fromGin, fromRequestCtx, fromUtils)
-	}
-}
-
-func TestIPRateLimitMiddlewareNilRedisPassesThrough(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	router.GET("/ping", IPRateLimitMiddleware(nil, "p", 1, time.Minute), func(ctx *gin.Context) {
-		ctx.String(http.StatusOK, "ok")
-	})
-
-	for i := 0; i < 2; i++ {
-		rec := httptest.NewRecorder()
-		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ping", nil))
-		if rec.Code != http.StatusOK {
-			t.Fatalf("request %d: expected 200, got %d", i+1, rec.Code)
-		}
 	}
 }

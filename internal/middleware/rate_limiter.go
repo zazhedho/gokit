@@ -2,120 +2,220 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
+	"reflect"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	"github.com/zazhedho/logus"
 
 	"github.com/zazhedho/gokit/internal/messages"
 	"github.com/zazhedho/gokit/internal/response"
-	"github.com/zazhedho/gokit/internal/utils"
-	"github.com/zazhedho/logus"
 )
 
-// // IPRateLimitMiddleware rate-limits per client IP via Redis; it passes through
-// // when the client is nil or limit/window is not positive.
-func IPRateLimitMiddleware(redisClient *redis.Client, prefix string, limit int, window time.Duration) gin.HandlerFunc {
-	return func(ctx *gin.Context) {
-		if redisClient == nil || limit <= 0 || window <= 0 {
-			ctx.Next()
-			return
-		}
+const (
+	// DefaultRateLimitTimeout bounds each Redis call when RateLimitOptions.Timeout is 0.
+	DefaultRateLimitTimeout = 200 * time.Millisecond
 
-		logID := utils.RequestID(ctx)
-		logPrefix := fmt.Sprintf("[RateLimiter][%s]", prefix)
+	errorLogInterval = 10 * time.Second
+)
 
-		ip := ctx.ClientIP()
-		key := fmt.Sprintf("rate_limit:%s:%s", prefix, ip)
+// rateLimitScript increments the counter and makes sure it has a TTL in one
+// atomic step: the expiry is set on the first hit, and re-applied if a counter
+// is found without one. It returns {count, remaining TTL in ms}.
+const rateLimitScript = `
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+local ttl = redis.call('PTTL', KEYS[1])
+if ttl < 0 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+  ttl = tonumber(ARGV[1])
+end
+return {count, ttl}
+`
 
-		reqCtx, cancel := context.WithTimeout(ctx.Request.Context(), 2*time.Second)
-		defer cancel()
+var rateLimitEval = redis.NewScript(rateLimitScript)
 
-		current, err := redisClient.Incr(reqCtx, key).Result()
-		if err != nil {
-			logus.LogContext(ctx, logus.LevelError, fmt.Sprintf("%s; redis.Incr error: %v", logPrefix, err))
-			ctx.Next()
-			return
-		}
-
-		ttl := ensureWindowExpiry(ctx, redisClient, key, window, current, logPrefix)
-
-		if current > int64(limit) {
-			if ttl > 0 {
-				ctx.Header("Retry-After", strconv.Itoa(int(ttl.Seconds())))
-			}
-
-			res := response.ErrorResponse(http.StatusTooManyRequests, messages.MsgSomethingWrong, logID, "Too many requests from this IP, please try again later")
-			ctx.AbortWithStatusJSON(http.StatusTooManyRequests, res)
-			return
-		}
-
-		ctx.Next()
-	}
+// RateLimitOptions configures IPRateLimit and EndpointRateLimit.
+type RateLimitOptions struct {
+	// Redis stores the counters. Any redis.Cmdable works (client, cluster, ring).
+	Redis redis.Cmdable
+	// Prefix namespaces the keys: rate_limit:<Prefix>:<key>.
+	Prefix string
+	// Limit is the number of requests allowed per Window; <= 0 disables limiting.
+	Limit int
+	// Window is the counting period; <= 0 disables limiting.
+	Window time.Duration
+	// KeyFunc identifies the caller. The default is the client IP from
+	// gin.Context.ClientIP with IPv6 addresses masked to their /64. An empty
+	// result falls back to the default.
+	KeyFunc func(*gin.Context) string
+	// FailClosed answers 503 when Redis is missing or fails. The default lets the
+	// request through (fail open) and logs the error, at most once per 10 seconds.
+	FailClosed bool
+	// Timeout bounds each Redis call. Default DefaultRateLimitTimeout (200ms).
+	Timeout time.Duration
 }
 
-// // EndpointRateLimitMiddleware rate-limits per route and client IP via Redis; it
-// // passes through when the client is nil or limit/window is not positive.
-func EndpointRateLimitMiddleware(redisClient *redis.Client, limit int, window time.Duration) gin.HandlerFunc {
-	return func(ctx *gin.Context) {
-		if redisClient == nil || limit <= 0 || window <= 0 {
-			ctx.Next()
-			return
-		}
-
-		logID := utils.RequestID(ctx)
-		logPrefix := "[EndpointRateLimiter]"
-
-		ip := ctx.ClientIP()
-		endpoint := ctx.FullPath()
-		key := fmt.Sprintf("rate_limit:endpoint:%s:%s", endpoint, ip)
-
-		reqCtx, cancel := context.WithTimeout(ctx.Request.Context(), 2*time.Second)
-		defer cancel()
-
-		current, err := redisClient.Incr(reqCtx, key).Result()
-		if err != nil {
-			logus.LogContext(ctx, logus.LevelError, fmt.Sprintf("%s; redis.Incr error: %v", logPrefix, err))
-			ctx.Next()
-			return
-		}
-
-		ttl := ensureWindowExpiry(ctx, redisClient, key, window, current, logPrefix)
-
-		if current > int64(limit) {
-			if ttl > 0 {
-				ctx.Header("Retry-After", strconv.Itoa(int(ttl.Seconds())))
-			}
-
-			res := response.ErrorResponse(http.StatusTooManyRequests, messages.MsgSomethingWrong, logID, "Rate limit exceeded for this endpoint")
-			ctx.AbortWithStatusJSON(http.StatusTooManyRequests, res)
-			return
-		}
-
-		ctx.Next()
+// IPRateLimit allows at most opts.Limit requests per opts.Window per caller
+// (see KeyFunc), counted across all routes under opts.Prefix.
+func IPRateLimit(opts RateLimitOptions) gin.HandlerFunc {
+	prefix := opts.Prefix
+	if prefix == "" {
+		prefix = "ip"
 	}
+	return newLimiter(opts, func(_ *gin.Context, caller string) string {
+		return fmt.Sprintf("rate_limit:%s:%s", prefix, caller)
+	}, "Too many requests from this IP, please try again later")
 }
 
-// ensureWindowExpiry guarantees the counter key has a TTL (re-applied if Redis
-// reports -1) so a failed first EXPIRE cannot leave it immortal. It uses a
-// detached 2s context and returns the remaining TTL, or 0 if unknown.
-func ensureWindowExpiry(ctx *gin.Context, redisClient *redis.Client, key string, window time.Duration, current int64, logPrefix string) time.Duration {
-	expCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx.Request.Context()), 2*time.Second)
+// EndpointRateLimit allows at most opts.Limit requests per opts.Window per
+// caller and route pattern.
+func EndpointRateLimit(opts RateLimitOptions) gin.HandlerFunc {
+	return newLimiter(opts, func(c *gin.Context, caller string) string {
+		route := c.FullPath()
+		if route == "" {
+			route = "unmatched"
+		}
+		if opts.Prefix != "" {
+			return fmt.Sprintf("rate_limit:%s:endpoint:%s:%s", opts.Prefix, route, caller)
+		}
+		return fmt.Sprintf("rate_limit:endpoint:%s:%s", route, caller)
+	}, "Rate limit exceeded for this endpoint")
+}
+
+type limiter struct {
+	opts    RateLimitOptions
+	keyOf   func(*gin.Context, string) string
+	denied  string
+	lastLog atomic.Int64
+	skipped atomic.Int64
+}
+
+func newLimiter(opts RateLimitOptions, keyOf func(*gin.Context, string) string, denied string) gin.HandlerFunc {
+	if opts.Timeout <= 0 {
+		opts.Timeout = DefaultRateLimitTimeout
+	}
+	l := &limiter{opts: opts, keyOf: keyOf, denied: denied}
+	return l.handle
+}
+
+func isNilCmdable(c redis.Cmdable) bool {
+	if c == nil {
+		return true
+	}
+	rv := reflect.ValueOf(c)
+	return rv.Kind() == reflect.Pointer && rv.IsNil()
+}
+
+func (l *limiter) handle(c *gin.Context) {
+	if l.opts.Limit <= 0 || l.opts.Window <= 0 {
+		c.Next()
+		return
+	}
+	if isNilCmdable(l.opts.Redis) {
+		l.unavailable(c, errors.New("no redis client configured"))
+		return
+	}
+
+	caller := ""
+	if l.opts.KeyFunc != nil {
+		caller = l.opts.KeyFunc(c)
+	}
+	if caller == "" {
+		caller = maskIP(c.ClientIP())
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), l.opts.Timeout)
 	defer cancel()
+	count, ttl, err := l.hit(ctx, l.keyOf(c, caller))
+	if err != nil {
+		l.unavailable(c, err)
+		return
+	}
 
-	if current > 1 {
-		ttl, err := redisClient.TTL(expCtx, key).Result()
-		if err != nil || ttl != -1 {
-			return ttl
+	if count > int64(l.opts.Limit) {
+		retry := (ttl + time.Second - 1) / time.Second // round up
+		if retry < 1 {
+			retry = 1
 		}
+		c.Header("Retry-After", strconv.FormatInt(int64(retry), 10))
+		res := response.ErrorResponse(http.StatusTooManyRequests, messages.MsgSomethingWrong, logus.RequestID(c), l.denied)
+		c.AbortWithStatusJSON(http.StatusTooManyRequests, res)
+		return
 	}
+	c.Next()
+}
 
-	if err := redisClient.Expire(expCtx, key, window).Err(); err != nil {
-		logus.LogContext(ctx, logus.LevelError, fmt.Sprintf("%s; redis.Expire error: %v", logPrefix, err))
-		return 0
+// hit counts one request for key and returns the count and the remaining TTL.
+func (l *limiter) hit(ctx context.Context, key string) (int64, time.Duration, error) {
+	window := max(l.opts.Window.Milliseconds(), 1)
+	raw, err := rateLimitEval.Eval(ctx, l.opts.Redis, []string{key}, window).Result()
+	if err != nil {
+		return 0, 0, err
 	}
-	return window
+	pair, ok := raw.([]any)
+	if !ok || len(pair) != 2 {
+		return 0, 0, fmt.Errorf("unexpected counter reply %T", raw)
+	}
+	count, ok1 := pair[0].(int64)
+	ttlMS, ok2 := pair[1].(int64)
+	if !ok1 || !ok2 {
+		return 0, 0, errors.New("unexpected counter reply types")
+	}
+	return count, time.Duration(ttlMS) * time.Millisecond, nil
+}
+
+// unavailable handles a counter that could not be read: fail open or closed.
+func (l *limiter) unavailable(c *gin.Context, err error) {
+	l.logError(c, err)
+	if !l.opts.FailClosed {
+		c.Next()
+		return
+	}
+	res := response.ErrorResponse(http.StatusServiceUnavailable, "Service Unavailable", logus.RequestID(c),
+		"The service is temporarily unavailable, please try again later")
+	c.Header("Retry-After", "1")
+	c.AbortWithStatusJSON(http.StatusServiceUnavailable, res)
+}
+
+// logError logs at most once per errorLogInterval, counting what it skipped, so
+// a Redis outage cannot flood the log at request rate.
+func (l *limiter) logError(c *gin.Context, err error) {
+	now := time.Now().UnixNano()
+	last := l.lastLog.Load()
+	if last != 0 && now-last < int64(errorLogInterval) || !l.lastLog.CompareAndSwap(last, now) {
+		l.skipped.Add(1)
+		return
+	}
+	skipped := l.skipped.Swap(0)
+	logus.LogContextf(c, logus.LevelError, "rate limiter: counter unavailable (fail closed: %t, %d similar errors suppressed): %v",
+		l.opts.FailClosed, skipped, err)
+}
+
+// maskIP returns the key for a client address: IPv4 as is, IPv6 reduced to its
+// /64 so a client rotating addresses inside its allocation shares one bucket.
+// Unparsable input is returned unchanged.
+func maskIP(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	addr = addr.Unmap()
+	if addr.Is6() {
+		prefix, err := addr.Prefix(64)
+		if err != nil {
+			return ip
+		}
+		return prefix.Masked().String()
+	}
+	return addr.String()
 }
