@@ -72,7 +72,7 @@ func TestSensitiveKeyVariants(t *testing.T) {
 			t.Errorf("%q must not be sensitive", key)
 		}
 	}
-	if !isSensitiveKey("ssn_number", []string{"SSN"}) || isSensitiveKey("ssn_number", nil) {
+	if !isSensitiveKey("zip_code", []string{"ZIP"}) || isSensitiveKey("zip_code", nil) {
 		t.Fatal("extra keys must be honored, and only when given")
 	}
 }
@@ -148,5 +148,68 @@ func TestRedactFailsClosedOnMarshalError(t *testing.T) {
 func TestRedactScalarsAndNil(t *testing.T) {
 	if RedactSensitivePayload(nil) != nil || RedactSensitivePayload("x") != "x" || RedactSensitivePayload(3) != 3 {
 		t.Fatal("scalars must pass through unchanged")
+	}
+}
+
+func TestSensitiveKeyAdditions(t *testing.T) {
+	for _, key := range []string{
+		"passphrase", "pass_code", "passcode", "accessKey", "access_key", "bearer", "Bearer-Token", "signature", "saml_assertion",
+		"cardNumber", "card_number", "pass", "auth", "user_auth", "ssn", "pan", "otp123", "OTP2", "pin4",
+	} {
+		if !isSensitiveKey(key, nil) {
+			t.Errorf("%q must be sensitive", key)
+		}
+	}
+	for _, key := range []string{"passenger", "panel", "author", "compass", "japan", "ssnake"} {
+		if isSensitiveKey(key, nil) {
+			t.Errorf("%q must not be sensitive", key)
+		}
+	}
+}
+
+func TestRedactDecodesJSONStringsAndBytes(t *testing.T) {
+	const doc = `{"password":"p","id":12345678901234567890,"n":{"token":"t"}}`
+	for name, in := range map[string]any{"string": doc, "bytes": []byte(doc), "raw": json.RawMessage(doc)} {
+		got, ok := RedactSensitivePayload(in).(map[string]any)
+		if !ok || got["password"] != "[REDACTED]" || got["n"].(map[string]any)["token"] != "[REDACTED]" {
+			t.Fatalf("%s: %#v", name, got)
+		}
+		if b, _ := json.Marshal(got["id"]); string(b) != "12345678901234567890" {
+			t.Fatalf("%s: id %s", name, b)
+		}
+	}
+	if got := RedactSensitivePayload("plain text"); got != "plain text" {
+		t.Fatalf("non-JSON string is a scalar: %#v", got)
+	}
+	if got := RedactSensitivePayload(`"just a json string"`); got != `"just a json string"` {
+		t.Fatalf("JSON scalar string stays as is: %#v", got)
+	}
+	for name, in := range map[string]any{"bytes": []byte("not json {"), "raw": json.RawMessage("nope")} {
+		if got := RedactSensitivePayload(in); got != "[UNREDACTABLE]" {
+			t.Fatalf("%s: %#v", name, got)
+		}
+	}
+}
+
+func TestRedactSurvivesSelfReferentialMaps(t *testing.T) {
+	m := map[string]any{"a": 1}
+	m["self"] = m
+	got := RedactSensitivePayload(m).(map[string]any)
+	if got["a"] != 1 {
+		t.Fatalf("got %v", got)
+	}
+	var depth int
+	for cur := any(got); ; depth++ {
+		next, ok := cur.(map[string]any)
+		if !ok {
+			if cur != "[UNREDACTABLE]" {
+				t.Fatalf("cap must end in [UNREDACTABLE], got %v", cur)
+			}
+			break
+		}
+		cur = next["self"]
+	}
+	if depth > 40 {
+		t.Fatalf("depth %d not capped", depth)
 	}
 }

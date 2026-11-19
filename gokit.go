@@ -69,15 +69,11 @@ func InterfaceString(data any) string { return utils.InterfaceString(data) }
 // JSONEncode marshals data to a JSON string, returning "" on failure.
 func JSONEncode(data any) string { return utils.JSONEncode(data) }
 
-// RedactSensitivePayload returns a copy of input with the values of sensitive
-// keys replaced by "[REDACTED]". Keys are matched case-insensitively with '_',
-// '-' and '.' ignored. The built-in list is password, passwd, pwd, token,
-// secret, otp, apikey, authorization, cookie, credential, privatekey, session,
-// jwt, cvv and pin; pwd, otp, jwt, cvv and pin match whole words only, so
-// "footprint" is untouched. extraKeys add more names. Maps, slices,
-// http.Header, url.Values, structs and pointers are walked recursively
-// (structs by JSON field name). A value that cannot be encoded becomes
-// "[UNREDACTABLE]" instead of being returned raw.
+// RedactSensitivePayload returns a copy of input with sensitive values masked as
+// "[REDACTED]" (key rules in the README). JSON held in a string, []byte or
+// json.RawMessage is decoded first; a plain non-JSON string is returned as is.
+// Undecodable bytes, unencodable values and structures over 32 levels deep become
+// "[UNREDACTABLE]".
 func RedactSensitivePayload(input any, extraKeys ...string) any {
 	return utils.RedactSensitivePayload(input, extraKeys...)
 }
