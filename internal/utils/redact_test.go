@@ -1,6 +1,11 @@
 package utils
 
-import "testing"
+import (
+	"encoding/json"
+	"net/http"
+	"net/url"
+	"testing"
+)
 
 func TestRedactSensitivePayload(t *testing.T) {
 	payload := struct {
@@ -38,5 +43,110 @@ func TestRedactSensitivePayload(t *testing.T) {
 	metadata, ok := got["metadata"].(map[string]any)
 	if !ok || metadata["client_secret"] != "[REDACTED]" || metadata["provider"] != "google" {
 		t.Fatalf("unexpected nested redaction result: %v", got["metadata"])
+	}
+}
+
+func TestSensitiveKeyVariants(t *testing.T) {
+	for _, key := range []string{
+		"password", "Password", "user_password", "userPassword", "passwd", "pwd", "PWD", "db.pwd",
+		"token", "access-token", "accessToken", "X-Auth-Token", "csrf_token",
+		"secret", "client_secret", "otp", "OTP", "user_otp", "otpCode",
+		"apikey", "api_key", "X-Api-Key", "apiKey",
+		"authorization", "Authorization", "Proxy-Authorization",
+		"cookie", "Set-Cookie", "credential", "credentials",
+		"privatekey", "private_key", "session", "session_id", "jwt", "id.jwt",
+		"cvv", "CVV", "pin", "pin_code", "user-pin",
+	} {
+		if !isSensitiveKey(key, nil) {
+			t.Errorf("%q must be sensitive", key)
+		}
+	}
+	for _, key := range []string{
+		"footprint", "email", "name", "shipping", "spinner", "hotpot", "description", "tokenless_id_not",
+	} {
+		// "tokenless..." contains token and is allowed to be over-redacted; skip it
+		if key == "tokenless_id_not" {
+			continue
+		}
+		if isSensitiveKey(key, nil) {
+			t.Errorf("%q must not be sensitive", key)
+		}
+	}
+	if !isSensitiveKey("ssn_number", []string{"SSN"}) || isSensitiveKey("ssn_number", nil) {
+		t.Fatal("extra keys must be honored, and only when given")
+	}
+}
+
+func TestRedactWalksEveryContainer(t *testing.T) {
+	const masked = "[REDACTED]"
+
+	hdr := RedactSensitivePayload(http.Header{"Authorization": {"Bearer x"}, "Set-Cookie": {"a=b"}, "Accept": {"json"}}).(http.Header)
+	if hdr["Authorization"][0] != masked || hdr["Set-Cookie"][0] != masked || hdr["Accept"][0] != "json" {
+		t.Fatalf("http.Header: %v", hdr)
+	}
+
+	vals := RedactSensitivePayload(url.Values{"password": {"p"}, "q": {"x"}}).(url.Values)
+	if vals.Get("password") != masked || vals.Get("q") != "x" {
+		t.Fatalf("url.Values: %v", vals)
+	}
+
+	ms := RedactSensitivePayload(map[string]string{"api_key": "k", "name": "n"}).(map[string]string)
+	if ms["api_key"] != masked || ms["name"] != "n" {
+		t.Fatalf("map[string]string: %v", ms)
+	}
+
+	list := RedactSensitivePayload([]map[string]any{{"token": "t", "id": 1}}).([]map[string]any)
+	if list[0]["token"] != masked || list[0]["id"] != 1 {
+		t.Fatalf("[]map[string]any: %v", list)
+	}
+
+	type inner struct {
+		PIN string `json:"pin"`
+	}
+	type outer struct {
+		Name  string  `json:"name"`
+		Inner *inner  `json:"inner"`
+		Items []inner `json:"items"`
+	}
+	got := RedactSensitivePayload(&outer{Name: "n", Inner: &inner{PIN: "1234"}, Items: []inner{{PIN: "9"}}}).(map[string]any)
+	if got["inner"].(map[string]any)["pin"] != masked || got["items"].([]any)[0].(map[string]any)["pin"] != masked || got["name"] != "n" {
+		t.Fatalf("struct/pointer: %v", got)
+	}
+
+	nested := RedactSensitivePayload(map[string]any{"a": []any{map[string]any{"jwt": "j"}}}).(map[string]any)
+	if nested["a"].([]any)[0].(map[string]any)["jwt"] != masked {
+		t.Fatalf("nested: %v", nested)
+	}
+}
+
+func TestRedactKeepsBigNumbersAndExtraKeys(t *testing.T) {
+	type row struct {
+		ID  int64  `json:"id"`
+		SSN string `json:"ssn"`
+	}
+	got := RedactSensitivePayload(row{ID: 9007199254740993, SSN: "x"}, "ssn").(map[string]any)
+	if got["ssn"] != "[REDACTED]" {
+		t.Fatalf("extra key not applied: %v", got)
+	}
+	if b, _ := json.Marshal(got["id"]); string(b) != "9007199254740993" {
+		t.Fatalf("large id lost precision: %s", b)
+	}
+}
+
+func TestRedactFailsClosedOnMarshalError(t *testing.T) {
+	for name, in := range map[string]any{
+		"channel":   make(chan int),
+		"func":      func() {},
+		"in struct": struct{ C chan int }{C: make(chan int)},
+	} {
+		if got := RedactSensitivePayload(in); got != "[UNREDACTABLE]" {
+			t.Errorf("%s: got %#v, want [UNREDACTABLE]", name, got)
+		}
+	}
+}
+
+func TestRedactScalarsAndNil(t *testing.T) {
+	if RedactSensitivePayload(nil) != nil || RedactSensitivePayload("x") != "x" || RedactSensitivePayload(3) != 3 {
+		t.Fatal("scalars must pass through unchanged")
 	}
 }

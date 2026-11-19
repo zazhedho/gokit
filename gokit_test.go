@@ -39,7 +39,7 @@ var (
 	_ func()                                                = gokit.ResetEnvErrors
 	_ func(any) string                                      = gokit.InterfaceString
 	_ func(any) string                                      = gokit.JSONEncode
-	_ func(any) any                                         = gokit.RedactSensitivePayload
+	_ func(any, ...string) any                              = gokit.RedactSensitivePayload
 	_ func(string) (string, error)                          = gokit.ValidateUUID
 	_ func(context.Context, uuid.UUID) context.Context      = gokit.WithRequestID
 	_ func(error, reflect.Type, string) []gokit.ErrorDetail = gokit.ValidateError
