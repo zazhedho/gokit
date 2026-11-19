@@ -1,3 +1,4 @@
+// Package filter parses list-query parameters into BaseParams.
 package filter
 
 import (
@@ -196,10 +197,13 @@ func whitelistTransform(
 	return out
 }
 
+// WhitelistFilter keeps only the allowed filter keys. A nil map stays nil.
 func WhitelistFilter(filters map[string]any, allowed []string) map[string]any {
 	return whitelistTransform(filters, allowed, nil)
 }
 
+// WhitelistStringFilter keeps only the allowed filter keys and converts their
+// values to strings with utils.ToString.
 func WhitelistStringFilter(filters map[string]any, allowed []string) map[string]any {
 	return whitelistTransform(filters, allowed, func(v any) any { return utils.ToString(v) })
 }

@@ -9,8 +9,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/zazhedho/gokit/internal/utils"
 	"github.com/zazhedho/logus"
+
+	"github.com/zazhedho/gokit/internal/utils"
 )
 
 // CtxKeyRequestID is the context key under which the request ID is stored. It is the

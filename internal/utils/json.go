@@ -1,8 +1,8 @@
+// Package utils holds the helpers behind the gokit facade: environment
+// parsing, redaction, validation messages, UUIDs and value conversion.
 package utils
 
-import (
-	"encoding/json"
-)
+import "encoding/json"
 
 // JSONEncode marshals data to a JSON string, returning "" on failure.
 func JSONEncode(data any) string {
@@ -11,22 +11,4 @@ func JSONEncode(data any) string {
 		return ""
 	}
 	return string(jsonData)
-}
-
-func NormalizePayload(input any) any {
-	if input == nil {
-		return map[string]any{}
-	}
-
-	raw, err := json.Marshal(input)
-	if err != nil {
-		return input
-	}
-
-	var normalized any
-	if err := json.Unmarshal(raw, &normalized); err != nil {
-		return input
-	}
-
-	return normalized
 }

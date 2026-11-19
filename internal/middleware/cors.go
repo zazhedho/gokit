@@ -1,3 +1,5 @@
+// Package middleware holds the gin middleware: request ID, recovery, CORS and
+// Redis rate limiting.
 package middleware
 
 import (
