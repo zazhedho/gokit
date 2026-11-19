@@ -75,12 +75,8 @@ func PaginationResponse(code int, total int64, page, perPage int, logID uuid.UUI
 // preflight cache age.
 type CORSOptions = middleware.CORSOptions
 
-// CORS returns CORS middleware. Requests without an Origin header pass through.
-// A real preflight (OPTIONS carrying Origin and Access-Control-Request-Method)
-// from an allowed origin gets 204 with the Allow headers, and from any other
-// origin 403; other OPTIONS requests reach your handlers. Allowed origins are
-// echoed on actual requests with the Expose headers. With no AllowOrigins no
-// origin is allowed. Combining the "*" origin with AllowCredentials panics.
+// CORS is open by default (any origin, no credentials); set AllowOrigins to
+// restrict it. Only real preflights get 204. See the README for details.
 func CORS(opts CORSOptions) gin.HandlerFunc { return middleware.CORS(opts) }
 
 // DefaultRateLimitTimeout bounds each Redis call of the rate limiters when

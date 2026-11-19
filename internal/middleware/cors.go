@@ -4,6 +4,7 @@ package middleware
 
 import (
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,33 +15,33 @@ import (
 
 // CORSOptions configures CORS.
 type CORSOptions struct {
-	// AllowOrigins lists the origins allowed to call the API, matched exactly
-	// (case-insensitively). "*" allows any origin. Empty allows none.
+	// AllowOrigins are scheme://host[:port] origins, matched exactly. Empty or
+	// "*" allows any origin; other entries with a path or trailing slash panic.
 	AllowOrigins []string
-	// Methods are the allowed methods. Default: GET, POST, PUT, PATCH, DELETE,
-	// HEAD, OPTIONS.
+	// Methods defaults to GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS.
 	Methods []string
-	// Headers are the allowed request headers. Default: Content-Type,
-	// Authorization, Accept, Cache-Control, X-Request-ID.
+	// Headers defaults to Content-Type, Authorization, Accept, Cache-Control, X-Request-ID.
 	Headers []string
-	// Expose are response headers scripts may read; X-Request-ID is always added.
+	// Expose lists readable response headers; X-Request-ID is always added.
 	Expose []string
-	// AllowCredentials sends Access-Control-Allow-Credentials: true. It cannot be
-	// combined with the "*" origin; CORS panics at construction if it is.
+	// AllowCredentials cannot be combined with an open origin list (it panics).
 	AllowCredentials bool
-	// MaxAge is how long browsers may cache a preflight; zero omits the header.
+	// MaxAge is the preflight cache age; zero omits the header.
 	MaxAge time.Duration
 }
 
-// CORS returns CORS middleware. Requests without an Origin header pass through
-// untouched. A preflight (OPTIONS with Origin and Access-Control-Request-Method)
-// from an allowed origin gets 204 with the Allow headers; from any other origin
-// it gets 403. Other OPTIONS requests reach the handlers. Allowed origins are
-// echoed back (or "*") on actual requests together with the Expose headers.
+// CORS answers real preflights (OPTIONS with Origin and Access-Control-Request-Method)
+// with 204, or 403 for a disallowed origin; other requests pass through with the
+// allowed origin echoed. It is open (any origin, no credentials) unless restricted.
 func CORS(opts CORSOptions) gin.HandlerFunc {
-	wildcard := slices.Contains(opts.AllowOrigins, "*")
+	wildcard := len(opts.AllowOrigins) == 0 || slices.Contains(opts.AllowOrigins, "*")
 	if wildcard && opts.AllowCredentials {
-		panic("gokit: CORS cannot combine the \"*\" origin with AllowCredentials")
+		panic("gokit: CORS cannot combine the \"*\" origin (or no AllowOrigins) with AllowCredentials")
+	}
+	for _, o := range opts.AllowOrigins {
+		if o != "*" && !validOrigin(o) {
+			panic("gokit: CORS origin must be scheme://host[:port] without a path or trailing slash: " + o)
+		}
 	}
 
 	methods := opts.Methods
@@ -110,4 +111,12 @@ func CORS(opts CORSOptions) gin.HandlerFunc {
 		h.Set("Access-Control-Expose-Headers", exposed)
 		c.Next()
 	}
+}
+
+func validOrigin(o string) bool {
+	u, err := url.Parse(o)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return false
+	}
+	return !strings.ContainsAny(strings.TrimPrefix(o, u.Scheme+"://"), "/?#@ ")
 }

@@ -102,18 +102,43 @@ func TestCORSRejectsPreflightFromDisallowedOrigin(t *testing.T) {
 	}
 }
 
-func TestCORSWildcardAndDefaults(t *testing.T) {
-	router := corsRouter(CORSOptions{AllowOrigins: []string{"*"}})
-	rec := send(router, http.MethodGet, map[string]string{"Origin": "https://any.example"})
-	if rec.Header().Get("Access-Control-Allow-Origin") != "*" || rec.Header().Get("Access-Control-Allow-Credentials") != "" {
-		t.Fatalf("wildcard: %v", rec.Header())
+func TestCORSIsOpenByDefault(t *testing.T) {
+	for name, opts := range map[string]CORSOptions{"empty": {}, "explicit star": {AllowOrigins: []string{"*"}}} {
+		router := corsRouter(opts)
+		rec := send(router, http.MethodGet, map[string]string{"Origin": "https://any.example"})
+		h := rec.Header()
+		if h.Get("Access-Control-Allow-Origin") != "*" || h.Get("Access-Control-Allow-Credentials") != "" || len(h.Values("Vary")) != 0 {
+			t.Fatalf("%s: %v", name, h)
+		}
+		rec = send(router, http.MethodOptions, map[string]string{"Origin": "https://any.example", "Access-Control-Request-Method": "PUT"})
+		if rec.Code != http.StatusNoContent || rec.Header().Get("Access-Control-Allow-Origin") != "*" {
+			t.Fatalf("%s preflight: %d %v", name, rec.Code, rec.Header())
+		}
 	}
+}
 
-	none := corsRouter(CORSOptions{})
-	rec = send(none, http.MethodGet, map[string]string{"Origin": "https://any.example"})
-	if rec.Header().Get("Access-Control-Allow-Origin") != "" {
-		t.Fatalf("no AllowOrigins must allow no origin: %v", rec.Header())
+func TestCORSVaryOriginForSpecificOrigins(t *testing.T) {
+	router := corsRouter(CORSOptions{AllowOrigins: []string{"https://app.example"}})
+	for _, origin := range []string{"https://app.example", "https://evil.example"} {
+		rec := send(router, http.MethodGet, map[string]string{"Origin": origin})
+		if !strings.Contains(strings.Join(rec.Header().Values("Vary"), ","), "Origin") {
+			t.Fatalf("Vary: Origin is required for %s: %v", origin, rec.Header())
+		}
 	}
+}
+
+func TestCORSRejectsMalformedOrigins(t *testing.T) {
+	for _, bad := range []string{"https://app.example/", "https://app.example/path", "app.example", "https://", "https://a b.example", "*.example.com"} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%q must be rejected at construction", bad)
+				}
+			}()
+			CORS(CORSOptions{AllowOrigins: []string{bad}})
+		}()
+	}
+	CORS(CORSOptions{AllowOrigins: []string{"https://app.example", "http://localhost:3000"}})
 }
 
 func TestCORSRejectsCredentialsWithWildcard(t *testing.T) {
@@ -123,4 +148,13 @@ func TestCORSRejectsCredentialsWithWildcard(t *testing.T) {
 		}
 	}()
 	CORS(CORSOptions{AllowOrigins: []string{"*"}, AllowCredentials: true})
+}
+
+func TestCORSRejectsCredentialsWithOpenDefault(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("credentials with no AllowOrigins (open) must panic")
+		}
+	}()
+	CORS(CORSOptions{AllowCredentials: true})
 }
