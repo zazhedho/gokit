@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -255,12 +256,15 @@ func TestRedisErrorsFailOpenByDefaultAndClosedOnRequest(t *testing.T) {
 // probe is a redis.Cmdable that records the deadline of the context it is given.
 type probe struct {
 	redis.Cmdable
+	mu        sync.Mutex
 	remaining time.Duration
 	calls     int
 	ctxErr    error
 }
 
 func (p *probe) Eval(ctx context.Context, _ string, _ []string, _ ...any) *redis.Cmd {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.calls++
 	p.ctxErr = ctx.Err()
 	if deadline, ok := ctx.Deadline(); ok {
@@ -304,5 +308,28 @@ func TestRedisErrorLogIsRateLimited(t *testing.T) {
 	}
 	if n := strings.Count(logs.String(), "rate limiter"); n != 1 {
 		t.Fatalf("expected one log line for 25 identical failures, got %d:\n%s", n, logs.String())
+	}
+}
+
+func TestErrorLogThrottleIsSafeUnderConcurrency(t *testing.T) {
+	logs := captureLogs(t)
+	router := newRouter(IPRateLimit(RateLimitOptions{Redis: &probe{}, Prefix: "p", Limit: 1, Window: time.Minute}), false)
+	var wg sync.WaitGroup
+	for range 40 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 10 {
+				router.ServeHTTP(httptest.NewRecorder(), func() *http.Request {
+					r := httptest.NewRequest(http.MethodGet, "/items", nil)
+					r.RemoteAddr = "192.0.2.1:1"
+					return r
+				}())
+			}
+		}()
+	}
+	wg.Wait()
+	if n := strings.Count(logs.String(), "rate limiter"); n != 1 {
+		t.Fatalf("400 concurrent failures must log once, got %d", n)
 	}
 }
