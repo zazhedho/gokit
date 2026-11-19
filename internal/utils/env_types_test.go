@@ -125,3 +125,92 @@ func TestToStringIsTheSingleConversion(t *testing.T) {
 		}
 	}
 }
+
+type shard uint16
+
+func TestGetEnvUnsignedIntegers(t *testing.T) {
+	ResetEnvErrors()
+	t.Cleanup(ResetEnvErrors)
+	t.Setenv("T_U", "7")
+	t.Setenv("T_U8", "300")
+	t.Setenv("T_NEG", "-1")
+	t.Setenv("T_SHARD", " 9 ")
+	if GetEnv("T_U", uint(1)) != 7 || GetEnv("T_SHARD", shard(1)) != 9 || GetEnv("T_U64", uint64(5)) != 5 {
+		t.Fatal("unsigned parsing failed")
+	}
+	if GetEnv("T_U8", uint8(2)) != 2 || GetEnv("T_NEG", uint(3)) != 3 {
+		t.Fatal("overflow and negatives must fall back")
+	}
+	err := EnvErrors()
+	if err == nil || !strings.Contains(err.Error(), "T_U8") || !strings.Contains(err.Error(), "T_NEG") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestGetEnvRejectsNegativeDurations(t *testing.T) {
+	ResetEnvErrors()
+	t.Cleanup(ResetEnvErrors)
+	for _, v := range []string{"-5", "-5s", "-1h"} {
+		t.Setenv("T_NEGDUR", v)
+		if got := GetEnv("T_NEGDUR", time.Minute); got != time.Minute {
+			t.Fatalf("%s: got %v", v, got)
+		}
+	}
+	if err := EnvErrors(); err == nil || !strings.Contains(err.Error(), "T_NEGDUR") {
+		t.Fatalf("negative durations must be recorded: %v", err)
+	}
+	t.Setenv("T_ZERO", "0")
+	if got := GetEnv("T_ZERO", time.Minute); got != 0 {
+		t.Fatalf("zero is a valid duration, got %v", got)
+	}
+}
+
+func TestEODAfterLastSecondReturnsNextDay(t *testing.T) {
+	ResetEnvErrors()
+	t.Cleanup(func() { ResetEnvErrors(); nowFunc = time.Now; SetEODLocation(nil) })
+	loc := time.FixedZone("T", 3600)
+	SetEODLocation(loc)
+	t.Setenv("T_EOD2", "eod")
+
+	nowFunc = func() time.Time { return time.Date(2026, 11, 19, 23, 59, 59, 500_000_000, loc) }
+	got := GetEnv("T_EOD2", time.Duration(-1))
+	if want := 24*time.Hour - 500*time.Millisecond; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	nowFunc = func() time.Time { return time.Date(2026, 11, 19, 12, 0, 0, 0, loc) }
+	if got := GetEnv("T_EOD2", time.Duration(-1)); got != 12*time.Hour-time.Second {
+		t.Fatalf("got %v", got)
+	}
+	if err := EnvErrors(); err != nil {
+		t.Fatalf("eod must never be an env error: %v", err)
+	}
+}
+
+func TestConcurrentSettersAndEnvErrors(t *testing.T) {
+	t.Cleanup(func() { ResetEnvErrors(); SetEODLocation(nil); SetValidationMessage("min", nil) })
+	t.Setenv("T_CONC_BAD", "x")
+	t.Setenv("T_CONC_EOD", "eod")
+	done := make(chan struct{})
+	for i := range 8 {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			for range 200 {
+				switch i % 4 {
+				case 0:
+					GetEnv("T_CONC_BAD", 1)
+				case 1:
+					SetEODLocation(time.UTC)
+					GetEnv("T_CONC_EOD", time.Second)
+				case 2:
+					SetValidationMessage("min", func(p string) string { return p })
+				default:
+					_ = EnvErrors()
+					ResetEnvErrors()
+				}
+			}
+		}()
+	}
+	for range 8 {
+		<-done
+	}
+}

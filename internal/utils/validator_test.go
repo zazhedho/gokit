@@ -77,8 +77,14 @@ func TestValidateErrorGuardsTypes(t *testing.T) {
 			t.Fatalf("%s: expected messages", name)
 		}
 		for _, d := range got {
-			if d.Field == "" || d.Message == "" || d.Code == "" {
+			if d.Message == "" || d.Code == "" {
 				t.Fatalf("%s: incomplete detail %+v", name, d)
+			}
+			if name == "pointer" {
+				continue
+			}
+			if d.Field != "" {
+				t.Fatalf("%s: an unresolvable path must not fall back to a Go field name, got %q", name, d.Field)
 			}
 		}
 	}

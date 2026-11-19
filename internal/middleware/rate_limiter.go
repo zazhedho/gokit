@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/zazhedho/logus"
 
@@ -121,8 +122,9 @@ func isNilCmdable(c redis.Cmdable) bool {
 }
 
 func (l *limiter) handle(c *gin.Context) {
+	id := logus.RequestID(c) // read once per request
 	if isNilCmdable(l.opts.Redis) {
-		l.unavailable(c, errors.New("no redis client configured"))
+		l.unavailable(c, id, errors.New("no redis client configured"))
 		return
 	}
 
@@ -142,7 +144,7 @@ func (l *limiter) handle(c *gin.Context) {
 	defer cancel()
 	count, ttl, err := l.hit(ctx, l.keyOf(c, caller))
 	if err != nil {
-		l.unavailable(c, err)
+		l.unavailable(c, id, err)
 		return
 	}
 
@@ -152,7 +154,7 @@ func (l *limiter) handle(c *gin.Context) {
 			retry = 1
 		}
 		c.Header("Retry-After", strconv.FormatInt(int64(retry), 10))
-		res := response.ErrorResponse(http.StatusTooManyRequests, messages.MsgSomethingWrong, logus.RequestID(c), l.denied)
+		res := response.ErrorResponse(http.StatusTooManyRequests, messages.MsgSomethingWrong, id, l.denied)
 		c.AbortWithStatusJSON(http.StatusTooManyRequests, res)
 		return
 	}
@@ -179,13 +181,13 @@ func (l *limiter) hit(ctx context.Context, key string) (int64, time.Duration, er
 }
 
 // unavailable handles a counter that could not be read: fail open or closed.
-func (l *limiter) unavailable(c *gin.Context, err error) {
-	l.logError(c, err)
+func (l *limiter) unavailable(c *gin.Context, id uuid.UUID, err error) {
+	l.logError(c, id, err)
 	if !l.opts.FailClosed {
 		c.Next()
 		return
 	}
-	res := response.ErrorResponse(http.StatusServiceUnavailable, "Service Unavailable", logus.RequestID(c),
+	res := response.ErrorResponse(http.StatusServiceUnavailable, "Service Unavailable", id,
 		"The service is temporarily unavailable, please try again later")
 	c.Header("Retry-After", "1")
 	c.AbortWithStatusJSON(http.StatusServiceUnavailable, res)
@@ -193,7 +195,7 @@ func (l *limiter) unavailable(c *gin.Context, err error) {
 
 // logError logs at most once per errorLogInterval, counting what it skipped, so
 // a Redis outage cannot flood the log at request rate.
-func (l *limiter) logError(c *gin.Context, err error) {
+func (l *limiter) logError(c *gin.Context, id uuid.UUID, err error) {
 	now := time.Now().UnixNano()
 	last := l.lastLog.Load()
 	if last != 0 && now-last < int64(errorLogInterval) || !l.lastLog.CompareAndSwap(last, now) {
@@ -201,7 +203,7 @@ func (l *limiter) logError(c *gin.Context, err error) {
 		return
 	}
 	skipped := l.skipped.Swap(0)
-	logus.LogContextf(c, logus.LevelError, "rate limiter: counter unavailable (fail closed: %t, %d similar errors suppressed): %v",
+	logus.LogContextf(logus.WithRequestID(c.Request.Context(), id), logus.LevelError, "rate limiter: counter unavailable (fail closed: %t, %d similar errors suppressed): %v",
 		l.opts.FailClosed, skipped, err)
 }
 

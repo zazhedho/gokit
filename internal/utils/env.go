@@ -56,10 +56,12 @@ func recordEnvError(key, kind string) {
 // underlying kind; time.Duration is recognized exactly.
 type EnvValue interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 |
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
 		~float32 | ~float64 | ~bool | ~string | ~[]string
 }
 
 var (
+	nowFunc      = time.Now
 	durationType = reflect.TypeFor[time.Duration]()
 	eodLocation  atomic.Pointer[time.Location]
 )
@@ -99,10 +101,10 @@ func parseEnv(rv reflect.Value, val string) (string, bool) {
 	typ := rv.Type()
 	if typ == durationType {
 		d, ok := parseDuration(val)
-		if ok {
+		if ok && d >= 0 {
 			rv.SetInt(int64(d))
 		}
-		return "duration such as 60, 30s, 1m, 1h or eod", ok
+		return "non-negative duration such as 60, 30s, 1m, 1h or eod", ok && d >= 0
 	}
 
 	switch typ.Kind() {
@@ -112,6 +114,12 @@ func parseEnv(rv reflect.Value, val string) (string, bool) {
 			rv.SetInt(parsed)
 		}
 		return "integer", err == nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		parsed, err := strconv.ParseUint(val, 10, typ.Bits())
+		if err == nil {
+			rv.SetUint(parsed)
+		}
+		return "non-negative integer", err == nil
 	case reflect.Float32, reflect.Float64:
 		parsed, err := strconv.ParseFloat(val, typ.Bits())
 		if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
@@ -143,16 +151,16 @@ func parseEnv(rv reflect.Value, val string) (string, bool) {
 
 // parseDuration accepts time.ParseDuration syntax ("10s", "1h"), bare seconds
 // ("60") and "eod": the time remaining until 23:59:59 in the EOD location. When
-// that moment has passed, "eod" is reported as not parsed so the default is used.
+// that moment has passed, the next day's end is used.
 func parseDuration(val string) (time.Duration, bool) {
 	if strings.EqualFold(val, "eod") {
 		loc := eodLoc()
-		now := time.Now().In(loc)
+		now := nowFunc().In(loc)
 		end := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, loc)
-		if end.After(now) {
-			return end.Sub(now), true
+		if !end.After(now) {
+			end = end.AddDate(0, 0, 1) // past today's end: count to the end of tomorrow
 		}
-		return 0, false
+		return end.Sub(now), true
 	}
 	if d, err := time.ParseDuration(val); err == nil {
 		return d, true

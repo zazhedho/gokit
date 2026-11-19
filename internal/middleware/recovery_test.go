@@ -3,9 +3,12 @@ package middleware
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -83,5 +86,41 @@ func TestRecoveryPassesThroughWithoutPanic(t *testing.T) {
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ok", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d", rec.Code)
+	}
+}
+
+func TestRecoveryLogsBrokenPipesBelowErrorLevel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	logs := captureLogs(t)
+	router := gin.New()
+	router.Use(Recovery())
+	router.GET("/pipe", func(*gin.Context) {
+		panic(&net.OpError{Op: "write", Err: os.NewSyscallError("write", syscall.EPIPE)})
+	})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/pipe", nil))
+
+	if rec.Body.Len() != 0 {
+		t.Fatalf("nothing may be written to a broken connection: %s", rec.Body.String())
+	}
+	out := logs.String()
+	if strings.Contains(out, `"level":"ERROR"`) || !strings.Contains(out, `"level":"WARN"`) {
+		t.Fatalf("a broken pipe is a warning, got: %s", out)
+	}
+}
+
+func TestRecoveryUsesOneRequestID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	logs := captureLogs(t)
+	router := gin.New()
+	router.Use(Recovery()) // no RequestIDMiddleware: an ID is generated once and shared
+	router.GET("/panic", func(*gin.Context) { panic("x") })
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/panic", nil))
+	var body struct {
+		LogID string `json:"log_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || !strings.Contains(logs.String(), body.LogID) {
+		t.Fatalf("response log_id %q must appear in the log: %s", body.LogID, logs.String())
 	}
 }

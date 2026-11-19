@@ -30,14 +30,15 @@ func Recovery() gin.HandlerFunc {
 				panic(rec)
 			}
 
-			id := logus.RequestID(c)
+			id := logus.RequestID(c) // read once; used for the log line and the response
 			logCtx := logus.WithRequestID(c.Request.Context(), id)
-			logus.LogContextf(logCtx, logus.LevelError, "RECOVERY; panic: %v; stack: %s", rec, debug.Stack())
 
 			if isBrokenPipe(rec) {
+				logus.LogContextf(logCtx, logus.LevelWarn, "RECOVERY; client connection broken: %v", rec)
 				c.Abort()
 				return
 			}
+			logus.LogContextf(logCtx, logus.LevelError, "RECOVERY; panic: %v; stack: %s", rec, debug.Stack())
 			c.AbortWithStatusJSON(http.StatusInternalServerError, response.InternalServerError(id))
 		}()
 		c.Next()

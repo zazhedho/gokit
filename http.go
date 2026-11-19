@@ -104,9 +104,8 @@ func EndpointRateLimit(opts RateLimitOptions) gin.HandlerFunc {
 // RequestIDMiddleware.
 func Recovery() gin.HandlerFunc { return middleware.Recovery() }
 
-// RequestIDMiddleware assigns each request an ID (a valid X-Request-ID UUID,
-// else a new one), stores it under CtxKeyRequestID and on the request context,
-// and echoes it in the X-Request-ID response header. Register it first.
+// RequestIDMiddleware sets the request ID (a valid X-Request-ID or a new UUID).
+// Register it first: without it each component may see a different generated ID.
 func RequestIDMiddleware() gin.HandlerFunc { return middleware.RequestIDMiddleware() }
 
 // BindOption configures BindJSON.

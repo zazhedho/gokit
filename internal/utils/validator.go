@@ -177,10 +177,7 @@ func ValidateError(err error, reflectType reflect.Type, tagName string) []respon
 	if ve, ok := errors.AsType[validator.ValidationErrors](err); ok {
 		out := make([]response.ErrorDetail, len(ve))
 		for i, fe := range ve {
-			field, ok := jsonFieldPath(reflectType, fe.StructNamespace(), tagName)
-			if !ok {
-				field = fe.Field()
-			}
+			field, _ := jsonFieldPath(reflectType, fe.StructNamespace(), tagName) // "" when unresolvable: never a Go name
 			out[i] = response.ErrorDetail{Field: field, Code: fe.Tag(), Message: mapValidateMessage(fe)}
 		}
 		return out
