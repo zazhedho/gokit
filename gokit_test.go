@@ -15,9 +15,10 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/zazhedho/gokit"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	"github.com/zazhedho/gokit"
 )
 
 type record struct {
@@ -72,6 +73,35 @@ var (
 	_ gokit.FilterSanitizer
 	_ gokit.QueryOptions
 	_ gokit.CRUDRepository[record]
+	_ func(gokit.QueryOptions) error                                                       = gokit.QueryOptions.Validate
+	_ func(context.Context, *record) error                                                 = (*gokit.Repository[record])(nil).Store
+	_ func(context.Context, *record) error                                                 = (*gokit.Repository[record])(nil).Update
+	_ func(context.Context, string, any, int, string) ([]record, error)                    = (*gokit.Repository[record])(nil).GetManyByField
+	_ func(context.Context, map[string]any) (bool, error)                                  = (*gokit.Repository[record])(nil).ExistsByFields
+	_ func(context.Context, gokit.BaseParams, gokit.QueryOptions) ([]record, int64, error) = (*gokit.Repository[record])(nil).GetAll
+
+	// errors
+	_ error = gokit.ErrNotFound
+	_ error = gokit.ErrInvalidOrderColumn
+	_ error = gokit.ErrInvalidOrderDirection
+	_ error = gokit.ErrInvalidFilter
+	_ error = gokit.ErrInvalidQueryOptions
+
+	// options and settings
+	_ gokit.CORSOptions
+	_ gokit.RateLimitOptions
+	_ gokit.BindOption
+	_ func(string, []string) []string   = gokit.GetEnv[[]string]
+	_ func(string, func(string) string) = gokit.SetValidationMessage
+	_ func(*time.Location)              = gokit.SetEODLocation
+	_ func(int64) gokit.BindOption      = gokit.WithMaxBodyBytes
+)
+
+// Defaults keep their values.
+const (
+	_               = int(gokit.DefaultMaxLimit)
+	_               = int(gokit.DefaultMaxSearchLength)
+	_ time.Duration = gokit.DefaultRateLimitTimeout
 )
 
 // Constants keep their string values.
@@ -84,6 +114,7 @@ const (
 	_ string = gokit.MsgNotFound
 	_ string = gokit.MsgResourceNotFound
 	_ string = gokit.MsgSuccess
+	_ string = gokit.MsgRequestTooLarge
 	_ string = gokit.MsgAccessDenied
 )
 
