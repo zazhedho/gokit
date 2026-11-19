@@ -16,6 +16,8 @@ import (
 const (
 	// MsgInvalidRequest is returned when a request body cannot be bound or validated.
 	MsgInvalidRequest = messages.MsgInvalidRequest
+	// MsgRequestTooLarge is returned when a request body exceeds the limit.
+	MsgRequestTooLarge = messages.MsgRequestTooLarge
 	// MsgSomethingWrong is a generic failure message.
 	MsgSomethingWrong = messages.MsgSomethingWrong
 	// MsgInternal is a format string taking the log ID.
@@ -96,13 +98,23 @@ func IPRateLimitMiddleware(redisClient *redis.Client, prefix string, limit int, 
 // and echoes it in the X-Request-ID response header. Register it first.
 func RequestIDMiddleware() gin.HandlerFunc { return middleware.RequestIDMiddleware() }
 
-// BindJSON binds the request body into req and writes a 400 envelope on failure.
-func BindJSON[T any](ctx *gin.Context, logID uuid.UUID, logPrefix string, req *T) bool {
-	return binding.BindJSON(ctx, logID, logPrefix, req)
+// BindOption configures BindJSON.
+type BindOption = binding.Option
+
+// WithMaxBodyBytes sets the largest request body BindJSON reads (default 1 MiB).
+// Values below 1 keep the default.
+func WithMaxBodyBytes(n int64) BindOption { return binding.WithMaxBodyBytes(n) }
+
+// BindJSON binds the JSON request body into req and validates its binding tags.
+// The body is capped (1 MiB unless WithMaxBodyBytes says otherwise). On failure
+// it logs the full error with logPrefix, aborts with a 400 envelope whose error
+// list names JSON fields (413 for an oversized body), and returns false.
+func BindJSON[T any](ctx *gin.Context, logID uuid.UUID, logPrefix string, req *T, opts ...BindOption) bool {
+	return binding.BindJSON(ctx, logID, logPrefix, req, opts...)
 }
 
-// ValidateUUIDParam validates the "id" route parameter and writes a 400
-// envelope on failure.
+// ValidateUUIDParam validates the "id" route parameter and returns it in
+// canonical form. On failure it aborts with a 400 envelope.
 func ValidateUUIDParam(ctx *gin.Context, logID uuid.UUID) (string, error) {
 	return binding.ValidateUUIDParam(ctx, logID)
 }

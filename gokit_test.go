@@ -48,19 +48,19 @@ var (
 	_ error = gokit.ErrInvalidUUID
 
 	// http
-	_ func(int, string, uuid.UUID, string) *gokit.APIResponse             = gokit.ErrorResponse
-	_ func(uuid.UUID, string) *gokit.APIResponse                          = gokit.Forbidden
-	_ func(uuid.UUID) *gokit.APIResponse                                  = gokit.InternalServerError
-	_ func(int, string, uuid.UUID, any) *gokit.APIResponse                = gokit.Response
-	_ func(uuid.UUID, string) *gokit.APIResponse                          = gokit.Unauthorized
-	_ func(int, int64, int, int, uuid.UUID, any) *gokit.PaginatedResponse = gokit.PaginationResponse
-	_ func() gin.HandlerFunc                                              = gokit.CORS
-	_ func(*redis.Client, int, time.Duration) gin.HandlerFunc             = gokit.EndpointRateLimitMiddleware
-	_ func() gin.HandlerFunc                                              = gokit.Recovery
-	_ func(*redis.Client, string, int, time.Duration) gin.HandlerFunc     = gokit.IPRateLimitMiddleware
-	_ func() gin.HandlerFunc                                              = gokit.RequestIDMiddleware
-	_ func(*gin.Context, uuid.UUID, string, *record) bool                 = gokit.BindJSON[record]
-	_ func(*gin.Context, uuid.UUID) (string, error)                       = gokit.ValidateUUIDParam
+	_ func(int, string, uuid.UUID, string) *gokit.APIResponse                  = gokit.ErrorResponse
+	_ func(uuid.UUID, string) *gokit.APIResponse                               = gokit.Forbidden
+	_ func(uuid.UUID) *gokit.APIResponse                                       = gokit.InternalServerError
+	_ func(int, string, uuid.UUID, any) *gokit.APIResponse                     = gokit.Response
+	_ func(uuid.UUID, string) *gokit.APIResponse                               = gokit.Unauthorized
+	_ func(int, int64, int, int, uuid.UUID, any) *gokit.PaginatedResponse      = gokit.PaginationResponse
+	_ func() gin.HandlerFunc                                                   = gokit.CORS
+	_ func(*redis.Client, int, time.Duration) gin.HandlerFunc                  = gokit.EndpointRateLimitMiddleware
+	_ func() gin.HandlerFunc                                                   = gokit.Recovery
+	_ func(*redis.Client, string, int, time.Duration) gin.HandlerFunc          = gokit.IPRateLimitMiddleware
+	_ func() gin.HandlerFunc                                                   = gokit.RequestIDMiddleware
+	_ func(*gin.Context, uuid.UUID, string, *record, ...gokit.BindOption) bool = gokit.BindJSON[record]
+	_ func(*gin.Context, uuid.UUID) (string, error)                            = gokit.ValidateUUIDParam
 	_ gokit.PaginatedResponse
 
 	// data

@@ -86,8 +86,9 @@ func RedactSensitivePayload(input any, extraKeys ...string) any {
 	return utils.RedactSensitivePayload(input, extraKeys...)
 }
 
-// ValidateUUID validates a UUID string and returns it unchanged. It
-// returns ErrMissingID or ErrInvalidUUID on failure.
+// ValidateUUID validates a UUID string and returns its canonical form
+// (lower-case, hyphenated), so every spelling uuid.Parse accepts normalizes to
+// one value. It returns ErrMissingID or ErrInvalidUUID on failure.
 func ValidateUUID(id string) (string, error) { return utils.ValidateUUID(id) }
 
 // WithRequestID returns a context carrying requestID under CtxKeyRequestID.
@@ -95,8 +96,18 @@ func WithRequestID(ctx context.Context, requestID uuid.UUID) context.Context {
 	return utils.WithRequestID(ctx, requestID)
 }
 
-// ValidateError converts validator errors into field messages, using the
-// struct tag tagName for field names.
+// ValidateError converts a binding or validation error into error details,
+// one per failed field. Fields are JSON paths taken from the struct tag tagName
+// (options such as ",omitempty" are stripped; nested paths use "." and indexes
+// "[i]"). JSON syntax and type errors map to fixed messages that never echo Go
+// type or field names; log err itself server-side.
 func ValidateError(err error, reflectType reflect.Type, tagName string) []ErrorDetail {
 	return utils.ValidateError(err, reflectType, tagName)
+}
+
+// SetValidationMessage overrides the message ValidateError produces for a
+// validator tag such as "min"; fn receives the tag parameter ("3" for min=3).
+// A nil fn removes the override. It is safe for concurrent use.
+func SetValidationMessage(tag string, fn func(param string) string) {
+	utils.SetValidationMessage(tag, fn)
 }

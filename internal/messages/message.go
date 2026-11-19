@@ -8,5 +8,6 @@ const (
 	MsgNotFound         = "Data Not Found"
 	MsgResourceNotFound = "The requested resource could not be found"
 	MsgSuccess          = "Success"
+	MsgRequestTooLarge  = "Request body too large"
 	MsgAccessDenied     = "Access denied. You do not have the required permissions."
 )

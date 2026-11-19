@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 )
 
+// ValidateUUIDParam validates the "id" route parameter and returns it in
+// canonical form. On failure it writes a 400 envelope and returns the error.
 func ValidateUUIDParam(ctx *gin.Context, logID uuid.UUID) (string, error) {
 	id, err := utils.ValidateUUID(ctx.Param("id"))
 	if err == nil {
@@ -23,6 +25,6 @@ func ValidateUUIDParam(ctx *gin.Context, logID uuid.UUID) (string, error) {
 	} else {
 		res.Error = []response.ErrorDetail{{Field: "id", Code: "uuid", Message: "ID must be a valid UUID"}}
 	}
-	ctx.JSON(http.StatusBadRequest, res)
+	ctx.AbortWithStatusJSON(http.StatusBadRequest, res)
 	return "", err
 }
