@@ -127,6 +127,17 @@ func TestCORSVaryOriginForSpecificOrigins(t *testing.T) {
 	}
 }
 
+func TestCORSVaryOriginWithoutOriginHeader(t *testing.T) {
+	rec := send(corsRouter(CORSOptions{AllowOrigins: []string{"https://app.example"}}), http.MethodGet, nil)
+	if !strings.Contains(strings.Join(rec.Header().Values("Vary"), ","), "Origin") {
+		t.Fatalf("a cache must not reuse a no-Origin response for other origins: %v", rec.Header())
+	}
+	rec = send(corsRouter(CORSOptions{}), http.MethodGet, nil)
+	if len(rec.Header().Values("Vary")) != 0 {
+		t.Fatalf("the open default sends no Vary: %v", rec.Header())
+	}
+}
+
 func TestCORSRejectsMalformedOrigins(t *testing.T) {
 	for _, bad := range []string{"https://app.example/", "https://app.example/path", "app.example", "https://", "https://a b.example", "*.example.com"} {
 		func() {

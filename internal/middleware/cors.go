@@ -66,6 +66,9 @@ func CORS(opts CORSOptions) gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
+		if !wildcard {
+			c.Writer.Header().Add("Vary", "Origin")
+		}
 		origin := c.GetHeader("Origin")
 		if origin == "" {
 			c.Next()
@@ -75,9 +78,6 @@ func CORS(opts CORSOptions) gin.HandlerFunc {
 
 		allowed := wildcard || slices.ContainsFunc(opts.AllowOrigins, func(o string) bool { return strings.EqualFold(o, origin) })
 		h := c.Writer.Header()
-		if !wildcard {
-			h.Add("Vary", "Origin")
-		}
 		if !allowed {
 			if preflight {
 				c.AbortWithStatus(http.StatusForbidden)
