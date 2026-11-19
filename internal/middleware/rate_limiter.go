@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -50,13 +52,12 @@ type RateLimitOptions struct {
 	Redis redis.Cmdable
 	// Prefix namespaces the keys: rate_limit:<Prefix>:<key>.
 	Prefix string
-	// Limit is the number of requests allowed per Window; <= 0 disables limiting.
-	Limit int
-	// Window is the counting period; <= 0 disables limiting.
+	// Limit and Window must be positive; the constructors panic otherwise.
+	Limit  int
 	Window time.Duration
-	// KeyFunc identifies the caller. The default is the client IP from
-	// gin.Context.ClientIP with IPv6 addresses masked to their /64. An empty
-	// result falls back to the default.
+	// KeyFunc identifies the caller (hashed into the key). Return only values the
+	// client cannot choose, such as an authenticated user ID; a header it sets
+	// lets it dodge the limit. Default: ClientIP, IPv6 masked to /64.
 	KeyFunc func(*gin.Context) string
 	// FailClosed answers 503 when Redis is missing or fails. The default lets the
 	// request through (fail open) and logs the error, at most once per 10 seconds.
@@ -101,6 +102,9 @@ type limiter struct {
 }
 
 func newLimiter(opts RateLimitOptions, keyOf func(*gin.Context, string) string, denied string) gin.HandlerFunc {
+	if opts.Limit <= 0 || opts.Window <= 0 {
+		panic("gokit: rate limiter needs a positive Limit and Window")
+	}
 	if opts.Timeout <= 0 {
 		opts.Timeout = DefaultRateLimitTimeout
 	}
@@ -117,10 +121,6 @@ func isNilCmdable(c redis.Cmdable) bool {
 }
 
 func (l *limiter) handle(c *gin.Context) {
-	if l.opts.Limit <= 0 || l.opts.Window <= 0 {
-		c.Next()
-		return
-	}
 	if isNilCmdable(l.opts.Redis) {
 		l.unavailable(c, errors.New("no redis client configured"))
 		return
@@ -128,13 +128,17 @@ func (l *limiter) handle(c *gin.Context) {
 
 	caller := ""
 	if l.opts.KeyFunc != nil {
-		caller = l.opts.KeyFunc(c)
+		if custom := l.opts.KeyFunc(c); custom != "" {
+			sum := sha256.Sum256([]byte(custom)) // bound the key size, whatever KeyFunc returns
+			caller = hex.EncodeToString(sum[:16])
+		}
 	}
 	if caller == "" {
 		caller = maskIP(c.ClientIP())
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), l.opts.Timeout)
+	// Detached from the request: a client that disconnects must not skip counting.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), l.opts.Timeout)
 	defer cancel()
 	count, ttl, err := l.hit(ctx, l.keyOf(c, caller))
 	if err != nil {

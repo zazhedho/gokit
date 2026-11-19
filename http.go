@@ -88,14 +88,9 @@ const DefaultRateLimitTimeout = middleware.DefaultRateLimitTimeout
 // FailClosed and the Redis Timeout.
 type RateLimitOptions = middleware.RateLimitOptions
 
-// IPRateLimit allows at most opts.Limit requests per opts.Window per caller,
-// counted in Redis under rate_limit:<Prefix>:<caller>. The caller defaults to
-// gin's ClientIP (IPv6 masked to /64), which trusts forwarding headers according
-// to the engine's trusted proxies; see the README. Over the limit it answers 429
-// with Retry-After rounded up to whole seconds. The counter is one atomic Redis
-// script. A missing client, or a non-positive Limit or Window, disables limiting;
-// a Redis error lets the request through unless opts.FailClosed, which answers
-// 503. Errors are logged at most once per 10 seconds.
+// IPRateLimit allows at most Limit requests per Window per caller (default
+// ClientIP, which depends on your trusted proxies; see the README). Limit and
+// Window must be positive or it panics. Redis errors fail open unless FailClosed.
 func IPRateLimit(opts RateLimitOptions) gin.HandlerFunc { return middleware.IPRateLimit(opts) }
 
 // EndpointRateLimit is IPRateLimit with the counter also keyed on the route

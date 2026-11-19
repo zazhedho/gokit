@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -45,14 +47,11 @@ func expectHit(mock redismock.ClientMock, key string, count, ttlMS int64) {
 	mock.ExpectEval(rateLimitScript, []string{key}, windowMS).SetVal([]any{count, ttlMS})
 }
 
-func TestLimitersPassThroughWhenDisabled(t *testing.T) {
+func TestLimitersPassThroughWithoutRedis(t *testing.T) {
 	var typedNil *redis.Client
-	client, _ := redismock.NewClientMock()
 	for name, opts := range map[string]RateLimitOptions{
 		"nil redis":       {Prefix: "p", Limit: 1, Window: time.Minute},
 		"typed nil redis": {Redis: typedNil, Prefix: "p", Limit: 1, Window: time.Minute},
-		"zero limit":      {Redis: client, Prefix: "p", Limit: 0, Window: time.Minute},
-		"zero window":     {Redis: client, Prefix: "p", Limit: 1},
 	} {
 		for kind, mw := range map[string]gin.HandlerFunc{"ip": IPRateLimit(opts), "endpoint": EndpointRateLimit(opts)} {
 			router := newRouter(mw, false)
@@ -62,6 +61,64 @@ func TestLimitersPassThroughWhenDisabled(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestNonPositiveLimitOrWindowPanicsAtConstruction(t *testing.T) {
+	client, _ := redismock.NewClientMock()
+	for name, opts := range map[string]RateLimitOptions{
+		"zero limit":      {Redis: client, Limit: 0, Window: time.Minute},
+		"negative limit":  {Redis: client, Limit: -1, Window: time.Minute},
+		"zero window":     {Redis: client, Limit: 1},
+		"negative window": {Redis: client, Limit: 1, Window: -time.Second},
+	} {
+		for kind, build := range map[string]func(RateLimitOptions) gin.HandlerFunc{"ip": IPRateLimit, "endpoint": EndpointRateLimit} {
+			func() {
+				defer func() {
+					if recover() == nil {
+						t.Errorf("%s/%s: must panic", name, kind)
+					}
+				}()
+				build(opts)
+			}()
+		}
+	}
+}
+
+func hashed(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:16])
+}
+
+func TestCustomKeysAreHashedAndBounded(t *testing.T) {
+	long := strings.Repeat("x", 5000)
+	sum := sha256.Sum256([]byte(long))
+	want := "rate_limit:p:" + hex.EncodeToString(sum[:16])
+	client, mock := redismock.NewClientMock()
+	expectHit(mock, want, 1, windowMS)
+	router := newRouter(IPRateLimit(RateLimitOptions{
+		Redis: client, Prefix: "p", Limit: 5, Window: time.Minute,
+		KeyFunc: func(*gin.Context) string { return long },
+	}), false)
+	serve(router, "192.0.2.1:1", nil)
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("custom keys must be hashed to a fixed length: %v", err)
+	}
+	if len(want) > 64 {
+		t.Fatalf("key too long: %d", len(want))
+	}
+}
+
+func TestRedisCallSurvivesClientDisconnect(t *testing.T) {
+	p := &probe{}
+	router := newRouter(IPRateLimit(RateLimitOptions{Redis: p, Prefix: "p", Limit: 1, Window: time.Minute}), false)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/items", nil).WithContext(ctx)
+	router.ServeHTTP(rec, req)
+	if p.ctxErr != nil {
+		t.Fatalf("a canceled request must not cancel the counter call: %v", p.ctxErr)
 	}
 }
 
@@ -137,7 +194,7 @@ func TestSpoofedForwardedHeaderDoesNotChangeTheKey(t *testing.T) {
 
 func TestKeyFuncOverridesTheDefault(t *testing.T) {
 	client, mock := redismock.NewClientMock()
-	expectHit(mock, "rate_limit:p:user-42", 1, windowMS)
+	expectHit(mock, "rate_limit:p:"+hashed("user-42"), 1, windowMS)
 	router := newRouter(IPRateLimit(RateLimitOptions{
 		Redis: client, Prefix: "p", Limit: 5, Window: time.Minute,
 		KeyFunc: func(c *gin.Context) string { return c.GetHeader("X-User") },
@@ -200,10 +257,12 @@ type probe struct {
 	redis.Cmdable
 	remaining time.Duration
 	calls     int
+	ctxErr    error
 }
 
 func (p *probe) Eval(ctx context.Context, _ string, _ []string, _ ...any) *redis.Cmd {
 	p.calls++
+	p.ctxErr = ctx.Err()
 	if deadline, ok := ctx.Deadline(); ok {
 		p.remaining = time.Until(deadline)
 	}
