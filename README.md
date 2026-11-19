@@ -7,8 +7,9 @@ Shared HTTP and data plumbing for [gin](https://github.com/gin-gonic/gin) + [GOR
 - **Responses**: one JSON envelope for success, error and paginated replies. Every response carries a `log_id`, and every error is a list of `{field, code, message}`.
 - **Binding**: `BindJSON` (size-limited, no Go internals in errors) and `ValidateUUIDParam`.
 - **List queries**: `GetBaseParams` parses search, filters, paging and ordering; filters, order columns and page size are allow-listed and capped.
+- **Database**: the repository targets PostgreSQL. Its SQL (`LIKE ... ESCAPE '\'`, `ON CONFLICT`, quoting) is Postgres-oriented; other databases are untested.
 - **Repository**: a generic GORM `Repository[T]` with CRUD, upsert, lookups, existence checks and a filtered, ordered, paginated `GetAll`.
-- **Middleware**: request ID, panic recovery, CORS, and Redis-backed per-caller and per-endpoint rate limiting.
+- **Middleware**: request ID, panic recovery, CORS (open unless restricted), and Redis-backed per-caller and per-endpoint rate limiting.
 - **Configuration**: typed `GetEnv` with duration parsing and collected parse errors.
 - **Helpers**: UUIDs, value-to-string conversion, JSON encoding, secret redaction.
 
@@ -46,7 +47,7 @@ func main() {
 	r := gin.New()
 	r.Use(gokit.RequestIDMiddleware()) // first: everything after shares the request ID
 	r.Use(gokit.Recovery())            // panics become a 500 envelope
-	r.Use(gokit.CORS(gokit.CORSOptions{AllowOrigins: []string{"https://app.example.com"}}))
+	r.Use(gokit.CORS(gokit.CORSOptions{})) // open: any origin, no credentials
 
 	r.POST("/items", func(c *gin.Context) {
 		logID := gokit.RequestID(c)
@@ -87,7 +88,7 @@ With `{}` it returns 400:
 | `InternalServerError(logID)` | 500 envelope whose error tells the caller to quote the log ID. |
 | `PaginationResponse(code, total, page, perPage, logID, data)` | `*PaginatedResponse` with `total_data` (`int64`), `total_pages`, `current_page`, `next_page`, `prev_page`, `limit`. An empty page, or a page past the last, keeps `status: true` and carries `MsgNotFound`. |
 
-Both envelope types are `APIResponse` and `PaginatedResponse`. `log_id` is always a UUID string. The `error` field is always a list of `ErrorDetail`:
+Both envelope types are `APIResponse` and `PaginatedResponse`. `log_id` is always a UUID string. The `error` key is always a list (never a single object) of `ErrorDetail`:
 
 ```json
 {"error":[{"field":"email","code":"email","message":"Invalid email"}]}
@@ -96,6 +97,8 @@ Both envelope types are `APIResponse` and `PaginatedResponse`. `log_id` is alway
 - `field` is present when the error belongs to a request field.
 - `code` is a machine code: the validator tag (`required`, `min`), or one derived from the status (`not_found`, `too_many_requests`).
 - `message` is safe to show to callers.
+
+`msg` becomes the envelope `message` and, for non-2xx codes, the first error detail too, and it is sent to the client as is. Pass a fixed, caller-safe string such as `MsgNotFound`. Never pass `err.Error()` as `msg` or as `publicError`, because that leaks internals; log the error and answer with a constant message.
 
 A nil slice passed as `data` is sent as `[]`, never `null`; in a paginated response `data` is always present.
 
@@ -161,10 +164,10 @@ func getItem(c *gin.Context) {
 | `search` | `Search` | Free text. |
 | `filters[name]=value` | `Filters` | See below. |
 | `order_by`, `order_direction` | `OrderBy`, `OrderDirection` | Empty `order_by` falls back to `defOrderBy`; a direction other than `asc`/`desc` falls back to `defOrderDirection`. |
-| `page`, `limit` | `Page`, `Limit`, `Offset` | `page` below 1 becomes 1. A `limit` below 1 becomes `defLimit`. A larger `limit` is left for the repository to clamp. `Offset = (page-1) * limit`, saturating instead of overflowing. |
+| `page`, `limit` | `Page`, `Limit`, `Offset` | `page` below 1 (or empty) becomes 1. A missing, empty, `0` or negative `limit` (other than `-1`) becomes `defLimit`. A larger `limit` is left for the repository to clamp. `Offset = (page-1) * limit`, saturating instead of overflowing. |
 
 - `defLimit` must be at least 1, otherwise `GetBaseParams` returns an error.
-- A non-numeric `page` or `limit` returns an error; respond with 400.
+- A non-numeric or overflowing `page` or `limit` returns an error (respond with 400) together with a safe struct (`Limit` = `defLimit`, `Page` 1), so it is never used half-parsed.
 - `limit=-1` ("every row") passes through with `Page` 1 and `Offset` 0; the repository honors it only with `QueryOptions.AllowAll`.
 
 **Filter values** are decoded as JSON when valid and kept as strings otherwise:
@@ -200,13 +203,13 @@ func listParams(c *gin.Context) (gokit.BaseParams, error) {
 | Method | Behavior |
 | --- | --- |
 | `Store(ctx, *T)` | Insert. Generated IDs and database defaults are written back into the value. |
-| `Update(ctx, *T)` | Writes every column of the record, except the key, `created_at`, `deleted_at`, `deleted_by` and associations, to the row with the same key. Zero values are written. Returns `ErrNotFound` when no live row matched; it never inserts or revives a soft-deleted row. A zero key is an error. |
-| `Upsert(ctx, values, conflictColumns, updateColumns)` | Insert with `ON CONFLICT` update, in batches of the DB's `CreateBatchSize` (500 when unset). Both column lists are required. |
-| `GetByID(ctx, id)` | The row whose key equals `id`, or `ErrNotFound`. |
+| `Update(ctx, *T)` | Writes every column of the record, except the key, `created_at`, `deleted_at`, `deleted_by` and associations, to the row with the same key. Zero values are written. Returns `ErrNotFound` when no live row matched; it never inserts or revives a soft-deleted row. A zero key is an error, and so is a model with no writable column besides the key. **A sparse struct overwrites columns with their zero values**: load the row, change it, then call `Update`, or use `Upsert`/your own `Updates` for partial writes. |
+| `Upsert(ctx, values, conflictColumns, updateColumns)` | Insert with `ON CONFLICT` update, in batches of the DB's `CreateBatchSize` (500 when unset). Both column lists are required and must be plain column names. |
+| `GetByID(ctx, id)` | The row whose key equals `id`, or `ErrNotFound`. Every read skips rows marked deleted through a plain `deleted_at` column, as gorm does for `gorm.DeletedAt`. |
 | `GetOneByField(ctx, field, value)` | The first row where `field = value` (`IS NULL` for `nil`), or `ErrNotFound`. |
-| `GetManyByField(ctx, field, value, limit, order)` | Up to `limit` rows (clamped to 1..`DefaultMaxLimit`), ordered by `order` (`"name desc"`; empty means by key) and then by key. |
+| `GetManyByField(ctx, field, value, limit, order)` | Up to `limit` rows (`DefaultMaxLimit` when `limit` is below 1 or above it), ordered by `order` (`"name desc"`; empty means by key) and then by key. |
 | `ExistsByField(ctx, field, value)` / `ExistsByFields(ctx, map)` | Existence checks with `LIMIT 1`; the map is AND-ed with sorted keys, and an empty map is an error wrapping `ErrInvalidFilter`. |
-| `Delete(ctx, id)` | Deletes by key; `ErrNotFound` when nothing matched. It follows gorm: a model with a `gorm.DeletedAt` field is soft-deleted, any other model is deleted for real. |
+| `Delete(ctx, id)` | Deletes by key (it does not skip plain-`deleted_at` rows, so it can purge them); `ErrNotFound` when nothing matched. It follows gorm: a model with a `gorm.DeletedAt` field is soft-deleted, any other model is deleted for real. |
 | `SoftDelete(ctx, id, deletedBy)` | Sets `deleted_by` and `deleted_at` (UTC) on a live row; `ErrNotFound` when no live row matched, so a second call fails. The model needs both columns. |
 | `GetAll(ctx, params, opts)` | `([]T, total int64, error)`: base query, search, filters, count, ordering, then offset and limit. |
 
@@ -216,19 +219,19 @@ Column, field and order names are validated as identifiers (ASCII letters, digit
 
 | Field | Purpose |
 | --- | --- |
-| `BaseQuery` (`QueryFunc`) | Joins, scopes or fixed conditions applied first. Its `WHERE` conditions are grouped, so an `Or()` inside cannot widen the rest of the query. |
+| `BaseQuery` (`QueryFunc`) | Joins, scopes or fixed conditions applied first. Its `WHERE` conditions are grouped, so an `Or()` inside cannot widen the rest of the query. It must extend the query it receives; returning a new session fails with `ErrInvalidQueryOptions`. |
 | `Search` (`SearchFunc`) | Applied when `params.Search` is non-empty, grouped like `BaseQuery`. `BuildSearchFunc("name", "email")` does a case-insensitive substring match across those columns; `%`, `_` and `\` in the text match themselves. |
 | `MaxSearchLength` | Search text longer than this many runes is truncated. Default 100. |
 | `AllowedFilters` | Filter keys that become `column = ?` (or `IN` for arrays). When empty, filters are ignored. Blank strings and `nil` mean no filter. |
 | `FilterSanitizer` | Replaces the default `WhitelistFilter`. Keys it returns outside `AllowedFilters` fail the query with `ErrInvalidQueryOptions`. |
 | `AllowedOrderColumns` | Columns a client may order by. |
-| `DefaultOrders` | Used when no `order_by` and direction are set; each entry is `"column asc"` or `"column desc"`. |
+| `DefaultOrders` | Used when no `order_by` and direction are set; each entry is `"column asc"` or `"column desc"` and its column must also be in `AllowedOrderColumns`. |
 | `MaxLimit` | Page size cap. Default 100 (`DefaultMaxLimit`). |
 | `AllowAll` | Honors `limit=-1` as "every row". Off by default. |
 
 How `GetAll` pages:
 
-- The limit is clamped to `1..MaxLimit`. `limit=-1` without `AllowAll` is clamped like any other out-of-range value.
+- `opts.PageSize(params)` is the limit `GetAll` uses, and the value to pass as `perPage` to `PaginationResponse`. It is `MaxLimit` when `params.Limit` is below 1 (including `-1` without `AllowAll`) or above `MaxLimit`, `params.Limit` otherwise, and `-1` for `-1` with `AllowAll`, which means no `LIMIT` and no `OFFSET`.
 - When `params.Page` is at least 1, the offset is derived from `Page` and the clamped limit. Otherwise `params.Offset` is used, never below 0.
 - Rows are ordered by the requested or default order, then by the key column, so pages are stable.
 
@@ -300,7 +303,7 @@ func listProducts(repo *ProductRepository) gin.HandlerFunc {
 		case err != nil:
 			c.JSON(http.StatusInternalServerError, gokit.InternalServerError(logID))
 		default:
-			perPage := min(max(params.Limit, 1), productQuery.MaxLimit) // what GetAll clamped to
+			perPage := productQuery.PageSize(params) // the limit GetAll applied
 			c.JSON(http.StatusOK, gokit.PaginationResponse(http.StatusOK, total, params.Page, perPage, logID, items))
 		}
 	}
@@ -323,26 +326,26 @@ func NewProductService(db *gorm.DB) *ProductService {
 
 | Middleware | Behavior |
 | --- | --- |
-| `RequestIDMiddleware()` | Uses a valid UUID in the `X-Request-ID` request header, else generates one. Stores it in the gin and request contexts and echoes it in the response header. Register it first. |
+| `RequestIDMiddleware()` | Required for consistent IDs: without it each component (recovery, limiter, your handlers) may generate a different ID for the same request. Uses a valid UUID in the `X-Request-ID` request header, else generates one. Stores it in the gin and request contexts and echoes it in the response header. Register it first. |
 | `Recovery()` | Recovers panics: logs the panic value and stack with the request ID, then answers 500 with an envelope that carries only the log ID. Register it after `RequestIDMiddleware`. |
 | `CORS(CORSOptions)` | Origin allow-list; see below. |
 | `IPRateLimit(RateLimitOptions)` | At most `Limit` requests per `Window` per caller. Key: `rate_limit:<Prefix>:<caller>`. |
 | `EndpointRateLimit(RateLimitOptions)` | The same, counted per route pattern and caller. |
 
-**CORS.** `CORSOptions` fields:
+**CORS.** `CORS(CORSOptions{})` is open: any origin (`Access-Control-Allow-Origin: *`), no credentials, so a project needs no setup. Restrict it with `AllowOrigins`. `CORSOptions` fields:
 
 | Field | Meaning |
 | --- | --- |
-| `AllowOrigins` | Origins allowed to call the API; `"*"` allows any. Empty allows none. |
+| `AllowOrigins` | Allowed origins, each `scheme://host[:port]` and matched exactly. Empty or `"*"` allows any origin. An entry with a path or trailing slash panics at construction. |
 | `Methods` | Default: `GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS`. |
 | `Headers` | Allowed request headers. Default: `Content-Type, Authorization, Accept, Cache-Control, X-Request-ID`. |
 | `Expose` | Readable response headers; `X-Request-ID` is always included. |
-| `AllowCredentials` | Sends `Access-Control-Allow-Credentials: true`. Combining it with `"*"` panics at construction. |
+| `AllowCredentials` | Sends `Access-Control-Allow-Credentials: true`. It needs an explicit origin list: with an open list it panics at construction. |
 | `MaxAge` | Preflight cache age. |
 
 - Requests without an `Origin` header pass through untouched.
-- Only a real preflight (`OPTIONS` with `Origin` and `Access-Control-Request-Method`) is answered, with 204 for an allowed origin and 403 otherwise. Any other `OPTIONS` request reaches your handlers.
-- An allowed origin is echoed back (with `Vary: Origin`) on actual requests, along with the `Expose` headers.
+- Only a real preflight (`OPTIONS` with `Origin` and `Access-Control-Request-Method`) is answered: 204 for an allowed origin, 403 for a disallowed one. Any other `OPTIONS` request reaches your handlers.
+- With specific origins, `Vary: Origin` is always sent and an allowed origin is echoed back, along with the `Expose` headers.
 
 **Rate limiting.** `RateLimitOptions` fields:
 
@@ -350,15 +353,16 @@ func NewProductService(db *gorm.DB) *ProductService {
 | --- | --- |
 | `Redis` | Any `redis.Cmdable` from `github.com/redis/go-redis/v9`: a client, a cluster client, a ring. |
 | `Prefix` | Key namespace. |
-| `Limit`, `Window` | Requests allowed per window. A non-positive value disables limiting. |
-| `KeyFunc` | Chooses the caller. Default: `ClientIP()` with IPv6 addresses masked to their `/64`. An empty result falls back to the default. |
+| `Limit`, `Window` | Requests allowed per window. Both must be positive: the constructors panic otherwise, so a typo cannot silently turn limiting off. |
+| `KeyFunc` | Chooses the caller. Default: `ClientIP()` with IPv6 addresses masked to their `/64`. Return only values the client cannot choose (such as an authenticated user ID): a client-chosen header lets callers dodge the limit by rotating it. The result is hashed (SHA-256, truncated) into a fixed-size Redis key, and an empty result falls back to the default. |
 | `FailClosed` | Answer 503 when Redis is missing or fails. Default: let the request through. |
 | `Timeout` | Bound for each Redis call. Default 200ms (`DefaultRateLimitTimeout`). |
 
 - The counter is one atomic Redis script (increment, set the TTL on the first hit, read the TTL), so a crash cannot leave a counter without an expiry.
 - Over the limit the response is 429 with a `Retry-After` header rounded up to whole seconds.
 - A Redis error is logged at most once every 10 seconds, however many requests fail.
-- A nil client or a non-positive `Limit` or `Window` disables limiting, or answers 503 for a nil client with `FailClosed`.
+- A nil client lets requests through, or answers 503 with `FailClosed`.
+- The Redis call is not canceled when the client disconnects, so a request that is abandoned mid-flight is still counted.
 
 ```go
 func setup(rdb redis.Cmdable) *gin.Engine {
@@ -366,7 +370,7 @@ func setup(rdb redis.Cmdable) *gin.Engine {
 	_ = r.SetTrustedProxies([]string{"10.0.0.0/8"}) // see "Security notes"
 	r.Use(gokit.RequestIDMiddleware(), gokit.Recovery())
 	r.Use(gokit.CORS(gokit.CORSOptions{
-		AllowOrigins:     []string{"https://app.example.com"},
+		AllowOrigins:     []string{"https://app.example.com"}, // credentials need explicit origins
 		AllowCredentials: true,
 		MaxAge:           10 * time.Minute,
 	}))
@@ -376,7 +380,9 @@ func setup(rdb redis.Cmdable) *gin.Engine {
 		Limit:      5,
 		Window:     time.Minute,
 		FailClosed: true, // refuse logins rather than run unthrottled
-		KeyFunc:    func(c *gin.Context) string { return c.GetHeader("X-Api-Client") },
+		// Default key: the client address. A KeyFunc must return something the
+		// caller cannot choose, such as an authenticated user ID from your own
+		// middleware; never a request header.
 	}), func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
@@ -388,7 +394,7 @@ Request ID helpers: `RequestID(ctx)` returns the ID carried by a gin context, re
 
 ### Configuration
 
-`GetEnv[T](key, default)` reads an environment variable as `T`: any integer kind up to 64 bits, `float32`, `float64`, `bool`, `string`, `[]string` or `time.Duration`, including named types built on them.
+`GetEnv[T](key, default)` reads an environment variable as `T`: any signed or unsigned integer kind up to 64 bits, `float32`, `float64`, `bool`, `string`, `[]string` or `time.Duration`, including named types built on them.
 
 ```go
 type Config struct {
@@ -412,10 +418,10 @@ func loadConfig() Config {
 }
 ```
 
-- An unset or blank variable returns the default.
-- An unparsable value returns the default and is recorded; `EnvErrors()` reports every such variable by name, and never includes the value. Integer overflow, `NaN` and `Inf` count as unparsable.
+- The value is trimmed of surrounding whitespace. An unset or blank variable returns the default.
+- An unparsable value returns the default and is recorded; `EnvErrors()` reports every such variable by name, and never includes the value. Integer overflow, a negative unsigned value, `NaN`, `Inf` and negative durations count as unparsable.
 - A `[]string` is comma-separated; items are trimmed and blanks dropped.
-- Durations accept `60` (seconds), `30s`, `1m`, `1h` (any `time.ParseDuration` form) and `eod`, the time remaining until 23:59:59 today. `eod` uses the process's local time zone; call `SetEODLocation(loc)` to pick another (`nil` restores the default). If that moment has passed the default is returned.
+- Durations accept `60` (seconds), `30s`, `1m`, `1h` (any `time.ParseDuration` form) and `eod`, the time remaining until 23:59:59 today. `eod` uses the process's local time zone; call `SetEODLocation(loc)` to pick another (`nil` restores the default). Once that moment has passed today, `eod` counts to the end of the next day.
 - `DurationFromEnv(keys, fallback)` returns the first positive duration among several variables.
 - `ResetEnvErrors()` clears recorded errors. It exists for tests only.
 
@@ -429,9 +435,14 @@ func loadConfig() Config {
 | `JSONEncode(v)` | `json.Marshal` to a string; `""` on failure. |
 | `RedactSensitivePayload(v, extraKeys...)` | A copy of `v` with sensitive values masked as `[REDACTED]`. |
 
-`RedactSensitivePayload` matches keys case-insensitively with `_`, `-` and `.` ignored. The built-in list is `password`, `passwd`, `pwd`, `token`, `secret`, `otp`, `apikey`, `authorization`, `cookie`, `credential`, `privatekey`, `session`, `jwt`, `cvv` and `pin`. The short names (`pwd`, `otp`, `jwt`, `cvv`, `pin`) match whole words only, so `userOTP` is masked and `footprint` is not. `extraKeys` add more names.
+`RedactSensitivePayload` matches keys case-insensitively with `_`, `-` and `.` ignored. The built-in list:
 
-It walks maps, slices, `http.Header`, `url.Values`, structs (by JSON field name) and pointers, and keeps large integers exact. A value that cannot be encoded comes back as `"[UNREDACTABLE]"` rather than raw. Use it before logging request bodies or headers:
+- Matched anywhere in the key: `password`, `passwd`, `passphrase`, `passcode`, `token`, `secret`, `apikey`, `accesskey`, `authorization`, `bearer`, `cookie`, `credential`, `privatekey`, `session`, `signature`, `assertion`, `cardnumber`.
+- Matched as a whole word only: `pwd`, `pass`, `otp`, `jwt`, `cvv`, `pin`, `auth`, `ssn`, `pan`. Words split on separators, camelCase and letter/digit edges, so `userOTP` and `otp123` are masked while `footprint`, `passenger` and `panel` are not.
+
+`extraKeys` add more names (matched as substrings of the normalized key).
+
+It walks maps, slices, `http.Header`, `url.Values`, structs (by JSON field name) and pointers, and keeps large integers exact. A string, `[]byte` or `json.RawMessage` that holds JSON is decoded and redacted; a plain string that is not JSON object or array text is returned as is, so redact structured values, not pre-formatted text. Undecodable bytes, values that cannot be encoded and structures deeper than 32 levels come back as `"[UNREDACTABLE]"` rather than raw. Use it before logging request bodies or headers:
 
 ```go
 func logSafe(payload any, header http.Header) string {
@@ -445,13 +456,13 @@ func logSafe(payload any, header http.Header) string {
 ## Security notes
 
 - **Trusted proxies and the rate-limit key.** The default caller key is `gin.Context.ClientIP()`. gin trusts every proxy by default, so any client can send `X-Forwarded-For` and be counted as someone else, which evades the limit or burns another caller's budget. Call `engine.SetTrustedProxies(...)` with your real proxy ranges (or `nil` to ignore forwarding headers) before relying on the limiters, or supply a `KeyFunc` that identifies callers some other way, such as an authenticated user ID. IPv6 callers are keyed by their `/64`, so rotating addresses inside one allocation shares a budget.
-- **Rate limiters fail open by default.** A Redis error, or a nil client, lets requests through (the error is logged, throttled). Set `FailClosed` on endpoints where running unthrottled is worse than refusing, such as login and password reset.
+- **Rate limiters fail open by default.** A Redis error, or a nil client, lets requests through (the error is logged, throttled). A non-positive `Limit` or `Window` panics instead. Set `FailClosed` on endpoints where running unthrottled is worse than refusing, such as login and password reset.
 - **Page size is capped.** `GetAll` clamps `limit` to `MaxLimit` (default 100), and `limit=-1` returns every row only when `AllowAll` is set. Keep `AllowAll` off for endpoints reachable by untrusted clients.
 - **Filters, orders and search are allow-listed.** An empty `AllowedFilters` ignores filters, and `AllowedOrderColumns` must list every sortable column. Search text is escaped for `LIKE` and capped in length.
 - **Identifiers are validated, values are bound.** Column, field and order names must be plain identifiers and are quoted; values go through query parameters.
 - **Misconfiguration is an error.** Invalid `QueryOptions`, a `BuildSearchFunc` without valid columns, or a sanitizer that returns a disallowed key fail the query instead of running it unfiltered.
 - **Request bodies are bounded.** `BindJSON` reads at most 1 MiB unless you raise it. Apply `http.MaxBytesReader` yourself for handlers that read the body another way.
-- **CORS is closed by default.** With no `AllowOrigins` no origin is allowed. List every origin explicitly; `"*"` cannot be combined with credentials.
+- **CORS is open by default.** `CORS(CORSOptions{})` allows any origin without credentials. Set `AllowOrigins` to restrict it; credentials always need an explicit list.
 - **Client-supplied request IDs are trusted.** `RequestIDMiddleware` accepts an `X-Request-ID` that parses as a UUID, so a client can choose the ID that appears in your logs and responses. Do not treat it as unique or secret.
 - **Errors do not leak internals.** The 500 envelope exposes only the log ID. Binding errors use JSON field names and fixed messages, never Go type or field names or decoder text.
 
@@ -467,6 +478,8 @@ make vet    # go vet ./...
 make cover  # tests with a coverage summary (coverage.out)
 make lint   # golangci-lint (install with: make lint-install)
 ```
+
+Set `GOKIT_TEST_DATABASE_URL` to a PostgreSQL DSN to also run the repository tests that need a real database (they create and drop a private schema); they are skipped otherwise.
 
 - The root `*.go` files are the entire public API: thin wrappers and type aliases.
 - `internal/` holds the implementation (`binding`, `filter`, `messages`, `middleware`, `repository`, `response`, `utils`) and is not importable. Add new behavior there and export it from the root.
