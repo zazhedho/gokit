@@ -15,10 +15,8 @@ import (
 	"github.com/zazhedho/gokit/internal/response"
 )
 
-// Recovery recovers from panics in later handlers. It logs the panic value and
-// stack with the request ID, then answers 500 with an envelope that carries only
-// the log ID. http.ErrAbortHandler is propagated, as net/http expects. Register
-// it after RequestIDMiddleware so the logged and returned IDs match the request.
+// Recovery logs a panic with its stack and answers 500 with only the log ID.
+// Register it after RequestIDMiddleware so the IDs match.
 func Recovery() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {

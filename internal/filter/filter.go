@@ -43,12 +43,8 @@ type BaseParams struct {
 	Offset int `json:"offset" form:"offset"`
 }
 
-// GetBaseParams parses search, filters, paging and ordering from query.
-// defLimit, which must be at least 1, replaces a missing or non-positive limit.
-// A limit above the repository cap is left as is; the repository clamps it.
-// limit=-1 is passed through with page 1 and offset 0. A non-numeric page or
-// limit returns an error, and so does an unacceptable filter value
-// (ErrInvalidFilter).
+// GetBaseParams parses search, filters, paging and ordering. defLimit (>= 1)
+// replaces a missing or non-positive limit; -1 passes through; bad input returns an error.
 func GetBaseParams(query url.Values, defOrderBy, defOrderDirection string, defLimit int) (req BaseParams, err error) {
 	if defLimit < 1 {
 		return req, fmt.Errorf("default limit must be at least 1, got %d", defLimit)

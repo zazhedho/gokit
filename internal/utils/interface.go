@@ -8,10 +8,7 @@ import (
 	"strings"
 )
 
-// ToString is the single any-to-string conversion. nil and nil pointers become
-// "", strings and bytes pass through, fmt.Stringer and error use their text,
-// []string is comma-joined, numbers use their shortest exact form, and anything
-// else is JSON-encoded (json.Number keeps its written form).
+// ToString is the one any-to-string conversion; json.Number keeps its written form.
 func ToString(v any) string {
 	switch t := v.(type) {
 	case nil:

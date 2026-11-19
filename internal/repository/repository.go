@@ -233,15 +233,8 @@ func (r *Repository[T]) ExistsByFields(ctx context.Context, filters map[string]a
 	return len(hit) > 0, nil
 }
 
-// GetAll returns one page of rows and the total number of rows matching the
-// base query, search and filters.
-//
-// The pipeline is: options validation, BaseQuery, search (truncated to
-// MaxSearchLength), allow-listed filters, count, ordering (requested or default,
-// then the key column as tie-breaker), then limit and offset. The limit is
-// clamped to 1..MaxLimit, except limit=-1 with AllowAll, which returns every
-// row. When params.Page is at least 1 the offset is derived from Page and the
-// effective limit; otherwise params.Offset (never below 0) is used.
+// GetAll runs BaseQuery, search (cut to MaxSearchLength), filters, count, ordering
+// with the key as tie-breaker, then limit and offset from PageSize.
 func (r *Repository[T]) GetAll(ctx context.Context, params filter.BaseParams, opts QueryOptions) (ret []T, totalData int64, err error) {
 	if err = opts.Validate(); err != nil {
 		return nil, 0, err
@@ -308,11 +301,8 @@ func truncateRunes(s string, n int) string {
 	return string(runes[:n])
 }
 
-// Update writes every column of m except the key, created_at, deleted_at,
-// deleted_by and associations, to the row whose key equals m's key. Zero values
-// are written. It returns ErrNotFound when no live row matched, so a missing or
-// soft-deleted row is never created or resurrected, and an error when m has no
-// key value. Note that MySQL reports unchanged rows as unmatched.
+// Update writes every column except the key, created_at, deleted_at, deleted_by and
+// associations (zero values included) to the live row with m's key; ErrNotFound if none.
 func (r *Repository[T]) Update(ctx context.Context, m *T) error {
 	if m == nil {
 		return errors.New(errRecordRequired)
@@ -366,11 +356,8 @@ func (r *Repository[T]) Update(ctx context.Context, m *T) error {
 	return nil
 }
 
-// Delete removes the row whose key equals id and returns ErrNotFound when none
-// matched. It follows gorm: a model with a gorm.DeletedAt field is soft-deleted
-// (deleted_at is set and later queries skip the row), any other model is
-// deleted for real. Use SoftDelete to mark rows that keep a plain deleted_at
-// column.
+// Delete follows gorm: models with gorm.DeletedAt are soft-deleted, others are
+// removed. ErrNotFound when no row matched.
 func (r *Repository[T]) Delete(ctx context.Context, id string) error {
 	query, err := r.byKey(ctx, id)
 	if err != nil {

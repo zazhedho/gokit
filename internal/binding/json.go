@@ -35,10 +35,8 @@ func WithMaxBodyBytes(n int64) Option {
 	}
 }
 
-// BindJSON binds the JSON body into req and validates its binding tags. The body
-// is limited with http.MaxBytesReader. On failure it logs the full error, aborts
-// the request with a 400 envelope (413 when the body is too large) whose error
-// list uses JSON field names, and returns false.
+// BindJSON caps the body with http.MaxBytesReader, binds and validates it, and on
+// failure logs the full error and aborts with a 400 (413 when too large).
 func BindJSON[T any](ctx *gin.Context, logID uuid.UUID, logPrefix string, req *T, opts ...Option) bool {
 	cfg := options{maxBodyBytes: DefaultMaxBodyBytes}
 	for _, opt := range opts {

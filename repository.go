@@ -8,13 +8,8 @@ import (
 	"github.com/zazhedho/gokit/internal/repository"
 )
 
-// Repository is a generic GORM repository for model type T. It is a defined
-// type, not an alias, so IDEs resolve its promoted DB field and methods when it
-// is embedded.
-//
-// Column names passed to its methods are validated (ASCII letters, digits and
-// "_", optionally "table.column") and quoted; values are always bound as
-// parameters.
+// Repository is a generic GORM repository. It is a defined type so IDEs resolve DB when
+// embedded. Column names are validated and quoted; values are always bound.
 type Repository[T any] struct {
 	DB *gorm.DB
 	// KeyColumn is the key used by GetByID, Update, Delete and SoftDelete and as
@@ -66,10 +61,8 @@ func (r *Repository[T]) GetOneByField(ctx context.Context, field string, value a
 	return r.impl().GetOneByField(ctx, field, value)
 }
 
-// GetManyByField returns up to limit rows where field equals value, ordered by
-// order ("column asc|desc"; empty orders by the key) and then by the key. limit
-// is DefaultMaxLimit when below 1 or above it. An invalid order wraps ErrInvalidOrderColumn
-// or ErrInvalidOrderDirection.
+// GetManyByField returns up to limit rows (DefaultMaxLimit if out of range) ordered by
+// order ("col asc|desc") then the key. Bad orders wrap ErrInvalidOrder*.
 func (r *Repository[T]) GetManyByField(ctx context.Context, field string, value any, limit int, order string) ([]T, error) {
 	return r.impl().GetManyByField(ctx, field, value, limit, order)
 }
@@ -93,16 +86,12 @@ func (r *Repository[T]) GetAll(ctx context.Context, params BaseParams, opts Quer
 	return r.impl().GetAll(ctx, params, opts)
 }
 
-// Update writes every column of m except the key, created_at, deleted_at,
-// deleted_by and associations to the row whose key equals m's key; zero values
-// are written. It never inserts and never revives a soft-deleted row: when no
-// live row matches it returns ErrNotFound. A zero key is an error.
+// Update writes every column except the key, created_at, deleted_at, deleted_by and
+// associations (zero values included) to the live row; ErrNotFound if none.
 func (r *Repository[T]) Update(ctx context.Context, m *T) error { return r.impl().Update(ctx, m) }
 
-// Delete removes the row whose key equals id and returns ErrNotFound when none
-// matched. It follows gorm: a model with a gorm.DeletedAt field is soft-deleted
-// (deleted_at is set and later queries skip the row); any other model is
-// deleted for real. SoftDelete marks rows that keep a plain deleted_at column.
+// Delete follows gorm: models with gorm.DeletedAt are soft-deleted, others removed.
+// ErrNotFound when no row matched.
 func (r *Repository[T]) Delete(ctx context.Context, id string) error { return r.impl().Delete(ctx, id) }
 
 // SoftDelete sets deleted_by and deleted_at (UTC) on the live row whose key

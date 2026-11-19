@@ -11,13 +11,8 @@ import (
 // likeEscaper escapes the LIKE metacharacters, backslash first.
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
-// BuildSearchFunc returns a SearchFunc that matches the search text, case
-// insensitively and as a plain substring, against any of columns. The text is
-// escaped, so "%", "_" and "\" match themselves, and the condition carries
-// ESCAPE '\'. Columns are quoted identifiers ("name" or "table.name").
-//
-// With no columns, or any invalid column, the returned func fails the query with
-// an error wrapping ErrInvalidQueryOptions instead of searching nothing.
+// BuildSearchFunc matches the text as an escaped, case-insensitive substring
+// (ESCAPE '\') on any column. Bad columns fail the query with ErrInvalidQueryOptions.
 func BuildSearchFunc(columns ...string) SearchFunc {
 	var cfgErr error
 	switch {

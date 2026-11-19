@@ -54,21 +54,15 @@ func SetEODLocation(loc *time.Location) { utils.SetEODLocation(loc) }
 // after loading configuration and refuse to start when it is non-nil.
 func EnvErrors() error { return utils.EnvErrors() }
 
-// InterfaceString converts a dynamic value to a string: nil and nil pointers
-// give "", strings and bytes pass through, fmt.Stringer and error use their
-// text, []string is comma-joined, numbers keep their exact decimal form, and
-// anything else is JSON-encoded. ConvertValuesToString and WhitelistStringFilter
-// use the same rules.
+// InterfaceString is the single value-to-string conversion (see the README); the
+// filter helpers use it too.
 func InterfaceString(data any) string { return utils.InterfaceString(data) }
 
 // JSONEncode marshals data to a JSON string, returning "" on failure.
 func JSONEncode(data any) string { return utils.JSONEncode(data) }
 
-// RedactSensitivePayload returns a copy of input with sensitive values masked as
-// "[REDACTED]" (key rules in the README). JSON held in a string, []byte or
-// json.RawMessage is decoded first; a plain non-JSON string is returned as is.
-// Undecodable bytes, unencodable values and structures over 32 levels deep become
-// "[UNREDACTABLE]".
+// RedactSensitivePayload masks sensitive values as "[REDACTED]"; the README lists the key rules.
+// JSON in a string, []byte or RawMessage is decoded first; undecodable bytes become "[UNREDACTABLE]".
 func RedactSensitivePayload(input any, extraKeys ...string) any {
 	return utils.RedactSensitivePayload(input, extraKeys...)
 }
@@ -83,11 +77,8 @@ func WithRequestID(ctx context.Context, requestID uuid.UUID) context.Context {
 	return utils.WithRequestID(ctx, requestID)
 }
 
-// ValidateError converts a binding or validation error into error details,
-// one per failed field. Fields are JSON paths taken from the struct tag tagName
-// (options such as ",omitempty" are stripped; nested paths use "." and indexes
-// "[i]"). JSON syntax and type errors map to fixed messages that never echo Go
-// type or field names; log err itself server-side.
+// ValidateError turns a binding or validation error into one ErrorDetail per field,
+// named by JSON path. Decoder errors get fixed messages with no Go names; log err yourself.
 func ValidateError(err error, reflectType reflect.Type, tagName string) []ErrorDetail {
 	return utils.ValidateError(err, reflectType, tagName)
 }

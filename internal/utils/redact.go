@@ -99,11 +99,8 @@ func isSensitiveKey(key string, extra []string) bool {
 // maxRedactDepth bounds recursion so a self-referential map cannot hang the caller.
 const maxRedactDepth = 32
 
-// RedactSensitivePayload returns a copy of input with sensitive values masked as
-// "[REDACTED]"; see the README for the key rules. A string, []byte or
-// json.RawMessage that holds JSON is decoded and redacted. A plain string
-// scalar is returned as is; undecodable bytes, values that cannot be encoded
-// and structures deeper than 32 levels become "[UNREDACTABLE]".
+// RedactSensitivePayload masks sensitive values; JSON in strings and bytes is decoded.
+// Undecodable input, unencodable values and depth over 32 become "[UNREDACTABLE]".
 func RedactSensitivePayload(input any, extraKeys ...string) any {
 	return redact(input, extraKeys, 0)
 }

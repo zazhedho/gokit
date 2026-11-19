@@ -32,10 +32,8 @@ var (
 	// desc. Handlers can answer 400.
 	ErrInvalidOrderDirection = repository.ErrInvalidOrderDirection
 
-	// ErrInvalidFilter is returned, wrapped with %w, for filter input that is not
-	// acceptable: an object value, a nested array, more than 100 array items, or
-	// an empty ExistsByFields map. Handlers can map it to a 400. The error text
-	// never echoes the input.
+	// ErrInvalidFilter (wrapped with %w) marks unacceptable filter input; answer 400.
+	// The text never echoes the input.
 	ErrInvalidFilter = filter.ErrInvalidFilter
 
 	// ErrInvalidQueryOptions reports a server-side misconfiguration: invalid
@@ -86,9 +84,6 @@ func ConvertValuesToString(filters map[string]any, keys ...string) map[string]an
 	return utils.ConvertValuesToString(filters, keys...)
 }
 
-// BuildSearchFunc returns a SearchFunc that matches the search text, case
-// insensitively and as a plain substring, against any of columns ("name" or
-// "table.name"). "%", "_" and "\" in the text match themselves. With no columns,
-// or an invalid one, the query fails with ErrInvalidQueryOptions instead of
-// silently searching nothing.
+// BuildSearchFunc matches the search text as an escaped, case-insensitive substring
+// on any of columns. No columns or an invalid one fails the query with ErrInvalidQueryOptions.
 func BuildSearchFunc(columns ...string) SearchFunc { return repository.BuildSearchFunc(columns...) }

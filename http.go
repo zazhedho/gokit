@@ -115,10 +115,8 @@ type BindOption = binding.Option
 // Values below 1 keep the default.
 func WithMaxBodyBytes(n int64) BindOption { return binding.WithMaxBodyBytes(n) }
 
-// BindJSON binds the JSON request body into req and validates its binding tags.
-// The body is capped (1 MiB unless WithMaxBodyBytes says otherwise). On failure
-// it logs the full error with logPrefix, aborts with a 400 envelope whose error
-// list names JSON fields (413 for an oversized body), and returns false.
+// BindJSON binds and validates a JSON body capped at 1 MiB (WithMaxBodyBytes).
+// On failure it logs err, aborts with a 400 (413 if too large) and returns false.
 func BindJSON[T any](ctx *gin.Context, logID uuid.UUID, logPrefix string, req *T, opts ...BindOption) bool {
 	return binding.BindJSON(ctx, logID, logPrefix, req, opts...)
 }

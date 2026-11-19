@@ -169,10 +169,8 @@ func expectedJSONType(k reflect.Kind) string {
 	}
 }
 
-// ValidateError converts a binding or validator error into error details. Field
-// names are the JSON paths from tagName (tag options stripped, nested paths
-// joined with "."). Decoder errors are mapped to fixed messages and never echo
-// Go type or field names; callers should log err itself server-side.
+// ValidateError maps errors to details named by JSON path; decoder errors get fixed
+// messages with no Go names. Log err itself.
 func ValidateError(err error, reflectType reflect.Type, tagName string) []response.ErrorDetail {
 	if ve, ok := errors.AsType[validator.ValidationErrors](err); ok {
 		out := make([]response.ErrorDetail, len(ve))
