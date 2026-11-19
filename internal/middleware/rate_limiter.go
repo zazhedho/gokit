@@ -36,7 +36,7 @@ func IPRateLimitMiddleware(redisClient *redis.Client, prefix string, limit int, 
 
 		current, err := redisClient.Incr(reqCtx, key).Result()
 		if err != nil {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; redis.Incr error: %v", logPrefix, err))
+			logus.LogContext(ctx, logus.LevelError, fmt.Sprintf("%s; redis.Incr error: %v", logPrefix, err))
 			ctx.Next()
 			return
 		}
@@ -82,7 +82,7 @@ func EndpointRateLimitMiddleware(redisClient *redis.Client, limit int, window ti
 
 		current, err := redisClient.Incr(reqCtx, key).Result()
 		if err != nil {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; redis.Incr error: %v", logPrefix, err))
+			logus.LogContext(ctx, logus.LevelError, fmt.Sprintf("%s; redis.Incr error: %v", logPrefix, err))
 			ctx.Next()
 			return
 		}
@@ -122,7 +122,7 @@ func ensureWindowExpiry(ctx *gin.Context, redisClient *redis.Client, key string,
 	}
 
 	if err := redisClient.Expire(expCtx, key, window).Err(); err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; redis.Expire error: %v", logPrefix, err))
+		logus.LogContext(ctx, logus.LevelError, fmt.Sprintf("%s; redis.Expire error: %v", logPrefix, err))
 		return 0
 	}
 	return window
