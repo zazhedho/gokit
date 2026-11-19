@@ -42,3 +42,14 @@ func TestValidateUUIDKeepsHTTPValidationResponses(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateUUIDParamReturnsCanonicalID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	id := uuid.New()
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Params = gin.Params{{Key: "id", Value: strings.ToUpper(id.String())}}
+	got, err := ValidateUUIDParam(ctx, uuid.New())
+	if err != nil || got != id.String() {
+		t.Fatalf("got %q, %v; want %q", got, err, id)
+	}
+}

@@ -77,9 +77,7 @@ func (s stringerValue) String() string {
 	return "stringer:" + string(s)
 }
 
-type boolAlias bool
-
-func TestInterfaceStringAndBoolVariants(t *testing.T) {
+func TestInterfaceStringVariants(t *testing.T) {
 	if got := InterfaceString(nil); got != "" {
 		t.Fatalf("expected empty nil string, got %q", got)
 	}
@@ -90,18 +88,6 @@ func TestInterfaceStringAndBoolVariants(t *testing.T) {
 		t.Fatalf("expected JSON string, got %q", got)
 	}
 
-	if InterfaceBool(nil) {
-		t.Fatal("expected nil to be false")
-	}
-	if !InterfaceBool(true) {
-		t.Fatal("expected bool true")
-	}
-	if !InterfaceBool(" TRUE ") {
-		t.Fatal("expected true string")
-	}
-	if !InterfaceBool(boolAlias(true)) {
-		t.Fatal("expected marshaled true alias to be true")
-	}
 }
 
 func TestConvertValuesToStringCoversAllKeysAndTypes(t *testing.T) {
@@ -125,32 +111,5 @@ func TestConvertValuesToStringCoversAllKeysAndTypes(t *testing.T) {
 	}
 	if got := ConvertValuesToString(nil); got != nil {
 		t.Fatalf("expected nil map, got %#v", got)
-	}
-}
-
-func TestNormalizeUUIDPointer(t *testing.T) {
-	if got := NormalizeUUIDPointer(""); got != nil {
-		t.Fatalf("expected nil for empty input, got %v", *got)
-	}
-	if got := NormalizeUUIDPointer("not-a-uuid"); got != nil {
-		t.Fatalf("expected nil for invalid uuid, got %v", *got)
-	}
-
-	id := "550e8400-e29b-41d4-a716-446655440000"
-	got := NormalizeUUIDPointer(" " + id + " ")
-	if got == nil || *got != id {
-		t.Fatalf("expected normalized uuid pointer, got %v", got)
-	}
-}
-
-func TestNormalizePhoneAndEmail(t *testing.T) {
-	if got := NormalizePhoneTo62("+62 812-3456-789"); got != "628123456789" {
-		t.Fatalf("unexpected phone normalization: %q", got)
-	}
-	if got := NormalizePhoneTo62("0812 3456 789"); got != "628123456789" {
-		t.Fatalf("unexpected phone normalization: %q", got)
-	}
-	if got := SanitizeEmail(" Jane.Doe@Example.COM "); got != "jane.doe@example.com" {
-		t.Fatalf("unexpected email sanitization: %q", got)
 	}
 }

@@ -1,37 +1,36 @@
 package utils
 
 import (
-	"context"
-	"strings"
+	"errors"
 
 	"github.com/google/uuid"
-	"github.com/zazhedho/logus"
 )
 
+// CreateUUID returns a new UUIDv7 as a string, or a v4 if v7 generation fails.
 func CreateUUID() string {
-	var id string
-	if uuid7, err := uuid.NewV7(); err == nil {
-		id = uuid7.String()
-	} else {
-		id = uuid.NewString()
+	if id, err := uuid.NewV7(); err == nil {
+		return id.String()
 	}
-
-	return id
+	return uuid.NewString()
 }
 
-func GenerateLogId(ctx context.Context) uuid.UUID {
-	return logus.RequestID(ctx)
-}
+var (
+	// ErrMissingID is returned by ValidateUUID for an empty ID.
+	ErrMissingID = errors.New("missing ID")
+	// ErrInvalidUUID is returned by ValidateUUID for an ID that is not a UUID.
+	ErrInvalidUUID = errors.New("invalid UUID")
+)
 
-func NormalizeUUIDPointer(input string) *string {
-	value := strings.TrimSpace(input)
-	if value == "" {
-		return nil
+// ValidateUUID parses id and returns its canonical form (lower-case, hyphenated),
+// so the hyphenless, braced, urn: and upper-case spellings that uuid.Parse
+// accepts all compare equal afterwards. It returns ErrMissingID or ErrInvalidUUID.
+func ValidateUUID(id string) (string, error) {
+	if id == "" {
+		return "", ErrMissingID
 	}
-
-	if _, err := uuid.Parse(value); err != nil {
-		return nil
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return "", ErrInvalidUUID
 	}
-
-	return &value
+	return parsed.String(), nil
 }

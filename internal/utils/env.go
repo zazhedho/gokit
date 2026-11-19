@@ -3,11 +3,14 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -49,75 +52,127 @@ func recordEnvError(key, kind string) {
 	envErrs[key] = kind
 }
 
+// EnvValue lists the types GetEnv can read. Named types are handled by their
+// underlying kind; time.Duration is recognized exactly.
+type EnvValue interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 |
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
+		~float32 | ~float64 | ~bool | ~string | ~[]string
+}
+
+var (
+	nowFunc      = time.Now
+	durationType = reflect.TypeFor[time.Duration]()
+	eodLocation  atomic.Pointer[time.Location]
+)
+
+// SetEODLocation sets the zone "eod" durations are computed in. nil restores
+// the default, the process's local zone (time.Local).
+func SetEODLocation(loc *time.Location) { eodLocation.Store(loc) }
+
+func eodLoc() *time.Location {
+	if loc := eodLocation.Load(); loc != nil {
+		return loc
+	}
+	return time.Local
+}
+
 // GetEnv treats an unset or blank variable as absent and returns def. An
 // unparsable value also returns def but is recorded for EnvErrors.
-func GetEnv[T any](key string, def T) T {
+func GetEnv[T EnvValue](key string, def T) T {
 	val := strings.TrimSpace(os.Getenv(key))
 	if val == "" {
 		return def
 	}
 
-	switch any(def).(type) {
-	case int:
-		if parsed, err := strconv.Atoi(val); err == nil {
-			return any(parsed).(T)
-		}
-
-	case int32:
-		if parsed, err := strconv.ParseInt(val, 10, 32); err == nil {
-			return any(int32(parsed)).(T)
-		}
-
-	case int64:
-		if parsed, err := strconv.ParseInt(val, 10, 64); err == nil {
-			return any(parsed).(T)
-		}
-
-	case float32:
-		if parsed, err := strconv.ParseFloat(val, 32); err == nil {
-			return any(float32(parsed)).(T)
-		}
-
-	case float64:
-		if parsed, err := strconv.ParseFloat(val, 64); err == nil {
-			return any(parsed).(T)
-		}
-
-	case bool:
-		if parsed, err := strconv.ParseBool(val); err == nil {
-			return any(parsed).(T)
-		}
-
-	case string:
-		return any(val).(T)
-
-	case time.Duration:
-		// Accepts time.ParseDuration syntax ("10s", "1h"), bare seconds ("60"),
-		// and "eod": the time remaining until 23:59:59 in WIB (UTC+7).
-		if strings.EqualFold(val, "eod") {
-			loc := time.FixedZone("WIB", 7*3600)
-			now := time.Now().In(loc)
-			end := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, loc)
-			if end.After(now) {
-				return any(end.Sub(now)).(T)
-			}
-			return def
-		}
-
-		if d, err := time.ParseDuration(val); err == nil {
-			return any(d).(T)
-		}
-		if sec, err := strconv.ParseInt(val, 10, 64); err == nil {
-			return any(time.Duration(sec) * time.Second).(T)
-		}
-		recordEnvError(key, "duration such as 60, 30s, 1m or 1h")
-		return def
+	out := def
+	rv := reflect.ValueOf(&out).Elem()
+	kind, ok := parseEnv(rv, val)
+	if ok {
+		return out
 	}
-
-	recordEnvError(key, fmt.Sprintf("%T", def))
+	recordEnvError(key, kind)
 	return def
 }
 
+// parseEnv stores val into rv. When it cannot, it returns a description of
+// the expected type for the error report.
+func parseEnv(rv reflect.Value, val string) (string, bool) {
+	typ := rv.Type()
+	if typ == durationType {
+		d, ok := parseDuration(val)
+		if ok && d >= 0 {
+			rv.SetInt(int64(d))
+		}
+		return "non-negative duration such as 60, 30s, 1m, 1h or eod", ok && d >= 0
+	}
+
+	switch typ.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		parsed, err := strconv.ParseInt(val, 10, typ.Bits())
+		if err == nil {
+			rv.SetInt(parsed)
+		}
+		return "integer", err == nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		parsed, err := strconv.ParseUint(val, 10, typ.Bits())
+		if err == nil {
+			rv.SetUint(parsed)
+		}
+		return "non-negative integer", err == nil
+	case reflect.Float32, reflect.Float64:
+		parsed, err := strconv.ParseFloat(val, typ.Bits())
+		if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+			return "finite number", false
+		}
+		rv.SetFloat(parsed)
+		return "", true
+	case reflect.Bool:
+		parsed, err := strconv.ParseBool(val)
+		if err == nil {
+			rv.SetBool(parsed)
+		}
+		return "boolean", err == nil
+	case reflect.String:
+		rv.SetString(val)
+		return "", true
+	case reflect.Slice: // ~[]string, the only slice EnvValue admits
+		items := make([]string, 0)
+		for _, item := range strings.Split(val, ",") {
+			if item = strings.TrimSpace(item); item != "" {
+				items = append(items, item)
+			}
+		}
+		rv.Set(reflect.ValueOf(items).Convert(typ))
+		return "", true
+	}
+	return typ.String(), false
+}
+
+// parseDuration accepts time.ParseDuration syntax ("10s", "1h"), bare seconds
+// ("60") and "eod": the time remaining until 23:59:59 in the EOD location. When
+// that moment has passed, the next day's end is used.
+func parseDuration(val string) (time.Duration, bool) {
+	if strings.EqualFold(val, "eod") {
+		loc := eodLoc()
+		now := nowFunc().In(loc)
+		end := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, loc)
+		if !end.After(now) {
+			end = end.AddDate(0, 0, 1) // past today's end: count to the end of tomorrow
+		}
+		return end.Sub(now), true
+	}
+	if d, err := time.ParseDuration(val); err == nil {
+		return d, true
+	}
+	if sec, err := strconv.ParseInt(val, 10, 64); err == nil {
+		return time.Duration(sec) * time.Second, true
+	}
+	return 0, false
+}
+
+// DurationFromEnv returns the first positive duration found in the given
+// environment variables, or fallback.
 func DurationFromEnv(keys []string, fallback time.Duration) time.Duration {
 	for _, key := range keys {
 		value := GetEnv(key, time.Duration(0))

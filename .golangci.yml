@@ -24,12 +24,18 @@ linters:
     - nilerr
     - noctx
     - prealloc
+    - revive
     - rowserrcheck
     - sqlclosecheck
     - staticcheck
     - unconvert
     - unused
   settings:
+    revive:
+      rules:
+        - name: var-naming
+        - name: exported
+        - name: package-comments
     dupl:
       threshold: 200
     misspell:
@@ -47,3 +53,8 @@ linters:
 formatters:
   enable:
     - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/zazhedho/gokit
