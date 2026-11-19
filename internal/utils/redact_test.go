@@ -2,19 +2,6 @@ package utils
 
 import "testing"
 
-func TestMergeMetadataPreservesBaseAndExtra(t *testing.T) {
-	base := map[string]any{"a": 1}
-	extra := map[string]any{"b": 2}
-
-	got := MergeMetadata(base, extra)
-	if len(got) != 2 {
-		t.Fatalf("expected 2 keys, got %v", got)
-	}
-	if got["a"] != 1 || got["b"] != 2 {
-		t.Fatalf("unexpected merged metadata: %v", got)
-	}
-}
-
 func TestRedactSensitivePayload(t *testing.T) {
 	payload := struct {
 		Email        string         `json:"email"`

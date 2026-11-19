@@ -5,7 +5,6 @@ package gokit
 
 import (
 	"context"
-	"encoding/json"
 	"reflect"
 	"time"
 
@@ -41,15 +40,6 @@ func DurationFromEnv(keys []string, fallback time.Duration) time.Duration {
 	return utils.DurationFromEnv(keys, fallback)
 }
 
-// EmptyJSON returns the raw JSON object "{}".
-func EmptyJSON() json.RawMessage { return utils.EmptyJSON() }
-
-// EnvKey upper-cases value and replaces "-", "." and spaces with "_".
-func EnvKey(value string) string { return utils.EnvKey(value) }
-
-// FirstNonEmptyString returns the first non-empty value, or "".
-func FirstNonEmptyString(values ...string) string { return utils.FirstNonEmptyString(values...) }
-
 // GenerateLogId returns the request ID for ctx as resolved by logus.
 func GenerateLogId(ctx context.Context) uuid.UUID { return utils.GenerateLogId(ctx) }
 
@@ -68,74 +58,14 @@ func ResetEnvErrors() { utils.ResetEnvErrors() }
 // GetRequestID returns the request ID stored in ctx as a string.
 func GetRequestID(ctx context.Context) string { return utils.GetRequestID(ctx) }
 
-// HumanizeKey replaces "_" and "-" with spaces and collapses whitespace.
-func HumanizeKey(value string) string { return utils.HumanizeKey(value) }
-
-// Int64PtrFromString parses value into an *int64, or nil when it is empty or not a number.
-func Int64PtrFromString(value string) *int64 { return utils.Int64PtrFromString(value) }
-
-// Int64PtrIfPositive returns a pointer to value when it is greater than zero, else nil.
-func Int64PtrIfPositive(value int64) *int64 { return utils.Int64PtrIfPositive(value) }
-
-// InterfaceBool converts a dynamic value to a bool.
-func InterfaceBool(data any) bool { return utils.InterfaceBool(data) }
-
 // InterfaceString converts a dynamic value to a string.
 func InterfaceString(data any) string { return utils.InterfaceString(data) }
-
-// IsSensitiveKey reports whether key looks like a password, token, secret or OTP field.
-func IsSensitiveKey(key string) bool { return utils.IsSensitiveKey(key) }
 
 // JsonEncode marshals data to a JSON string, returning "" on failure.
 func JsonEncode(data any) string { return utils.JsonEncode(data) }
 
-// MergeMetadata returns a new map of base overlaid with extra, or nil when both are empty.
-func MergeMetadata(base, extra map[string]any) map[string]any {
-	return utils.MergeMetadata(base, extra)
-}
-
-// MustJSON marshals value to JSON, returning an empty object on failure.
-func MustJSON(value any) json.RawMessage { return utils.MustJSON(value) }
-
-// NormalizeKey lower-cases and trims a key.
-func NormalizeKey(value string) string { return utils.NormalizeKey(value) }
-
-// NormalizePayload round-trips input through JSON into plain maps, slices and scalars; nil becomes an empty map.
-func NormalizePayload(input any) any { return utils.NormalizePayload(input) }
-
-// NormalizePhoneTo62 normalizes an Indonesian phone number to the 62 prefix.
-func NormalizePhoneTo62(phoneInput string) string { return utils.NormalizePhoneTo62(phoneInput) }
-
-// NormalizeUUIDPointer returns a pointer to the trimmed input when it is a valid UUID, else nil.
-func NormalizeUUIDPointer(input string) *string { return utils.NormalizeUUIDPointer(input) }
-
-// NormalizeUpperKey upper-cases and trims a key.
-func NormalizeUpperKey(value string) string { return utils.NormalizeUpperKey(value) }
-
 // RedactSensitivePayload returns input with sensitive fields masked.
 func RedactSensitivePayload(input any) any { return utils.RedactSensitivePayload(input) }
-
-// RedactSensitiveValue returns input with sensitive values masked.
-func RedactSensitiveValue(input any) any { return utils.RedactSensitiveValue(input) }
-
-// SanitizeEmail lower-cases and trims an email address, returning "" when it is not a valid bare address.
-func SanitizeEmail(email string) string { return utils.SanitizeEmail(email) }
-
-// StringOrDefault returns value, or fallback when value is empty.
-func StringOrDefault(value, fallback string) string { return utils.StringOrDefault(value, fallback) }
-
-// StringPtrIfNotEmpty returns a pointer to value, or nil when it is empty.
-func StringPtrIfNotEmpty(value string) *string { return utils.StringPtrIfNotEmpty(value) }
-
-// StripHTML removes script and style blocks and tags from s, unescapes HTML
-// entities and collapses whitespace.
-func StripHTML(s string) string { return utils.StripHTML(s) }
-
-// TitleCase converts s to title case using English casing rules.
-func TitleCase(s string) string { return utils.TitleCase(s) }
-
-// TitleHumanized humanizes a key and converts it to title case.
-func TitleHumanized(value string) string { return utils.TitleHumanized(value) }
 
 // ValidateUUID validates a UUID string and returns it unchanged. It
 // returns ErrMissingID or ErrInvalidUUID on failure.

@@ -2,10 +2,11 @@ package middleware
 
 import (
 	"fmt"
+	"net/http"
+
 	"github.com/zazhedho/gokit/internal/response"
 	"github.com/zazhedho/gokit/internal/utils"
 	"github.com/zazhedho/logus"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 )

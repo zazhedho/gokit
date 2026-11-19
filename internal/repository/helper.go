@@ -2,11 +2,12 @@ package repository
 
 import (
 	"fmt"
-	"github.com/zazhedho/gokit/internal/filter"
-	"github.com/zazhedho/gokit/internal/utils"
 	"reflect"
 	"slices"
 	"strings"
+
+	"github.com/zazhedho/gokit/internal/filter"
+	"github.com/zazhedho/gokit/internal/utils"
 
 	"gorm.io/gorm"
 )

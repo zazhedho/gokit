@@ -29,15 +29,3 @@ func NormalizePayload(input any) any {
 
 	return normalized
 }
-
-func MustJSON(value any) json.RawMessage {
-	body, err := json.Marshal(value)
-	if err != nil {
-		return EmptyJSON()
-	}
-	return body
-}
-
-func EmptyJSON() json.RawMessage {
-	return json.RawMessage(`{}`)
-}

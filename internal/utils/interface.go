@@ -21,29 +21,6 @@ func InterfaceString(data any) string {
 	}
 }
 
-func InterfaceBool(data any) bool {
-	if data == nil {
-		return false
-	}
-
-	switch v := data.(type) {
-	case bool:
-		return v
-	case string:
-		return strings.EqualFold(strings.TrimSpace(v), "true")
-	default:
-		bytes, _ := json.Marshal(data)
-		return strings.EqualFold(strings.Trim(string(bytes), `"`), "true")
-	}
-}
-
-func Int64PtrIfPositive(value int64) *int64 {
-	if value <= 0 {
-		return nil
-	}
-	return &value
-}
-
 func ConvertValuesToString(filters map[string]any, keys ...string) map[string]any {
 	if filters == nil {
 		return nil

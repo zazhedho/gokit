@@ -1,21 +1,6 @@
 package utils
 
-import (
-	"maps"
-	"strings"
-)
-
-func MergeMetadata(base, extra map[string]any) map[string]any {
-	if len(base) == 0 && len(extra) == 0 {
-		return nil
-	}
-
-	merged := make(map[string]any, len(base)+len(extra))
-	maps.Copy(merged, base)
-	maps.Copy(merged, extra)
-
-	return merged
-}
+import "strings"
 
 func RedactSensitivePayload(input any) any {
 	normalized := NormalizePayload(input)

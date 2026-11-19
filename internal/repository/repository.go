@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/zazhedho/gokit/internal/filter"
 	"strings"
 	"time"
+
+	"github.com/zazhedho/gokit/internal/filter"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"

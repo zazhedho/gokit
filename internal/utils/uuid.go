@@ -2,7 +2,6 @@ package utils
 
 import (
 	"context"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/zazhedho/logus"
@@ -21,17 +20,4 @@ func CreateUUID() string {
 
 func GenerateLogId(ctx context.Context) uuid.UUID {
 	return logus.RequestID(ctx)
-}
-
-func NormalizeUUIDPointer(input string) *string {
-	value := strings.TrimSpace(input)
-	if value == "" {
-		return nil
-	}
-
-	if _, err := uuid.Parse(value); err != nil {
-		return nil
-	}
-
-	return &value
 }

@@ -22,9 +22,6 @@ func TestJSONAndStringHelpers(t *testing.T) {
 	}{Name: "Jane"}) == nil {
 		t.Fatal("expected normalized payload")
 	}
-	if got := TitleCase("jane doe"); got != "Jane Doe" {
-		t.Fatalf("unexpected title case: %q", got)
-	}
 	if CreateUUID() == "" {
 		t.Fatal("expected uuid")
 	}
