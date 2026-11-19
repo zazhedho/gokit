@@ -96,7 +96,7 @@ func TestGetAllAppendsPrimaryKeyTieBreaker(t *testing.T) {
 		},
 		"default orders": {
 			filter.BaseParams{Limit: 5, Page: 1},
-			QueryOptions{DefaultOrders: []string{"status asc", "name desc"}, AllowedOrderColumns: []string{"status", "name"}},
+			QueryOptions{DefaultOrders: []string{"status asc", "name desc"}},
 			`ORDER BY "status","name" DESC,"sample_records"."id"`,
 		},
 		"no order": {
@@ -158,14 +158,12 @@ func TestQueryOptionsValidate(t *testing.T) {
 		t.Fatalf("valid options rejected: %v", err)
 	}
 	for name, opts := range map[string]QueryOptions{
-		"filter key":                 {AllowedFilters: []string{"status", "x) OR 1=1"}},
-		"order column":               {AllowedOrderColumns: []string{"name;"}},
-		"default order":              {DefaultOrders: []string{"name sideways"}},
-		"default shape":              {DefaultOrders: []string{"name"}},
-		"default not allowed":        {AllowedOrderColumns: []string{"id"}, DefaultOrders: []string{"name asc"}},
-		"default without allow-list": {DefaultOrders: []string{"name asc"}},
-		"negative limit":             {MaxLimit: -1},
-		"negative search":            {MaxSearchLength: -1},
+		"filter key":      {AllowedFilters: []string{"status", "x) OR 1=1"}},
+		"order column":    {AllowedOrderColumns: []string{"name;"}},
+		"default order":   {DefaultOrders: []string{"name sideways"}},
+		"default shape":   {DefaultOrders: []string{"name"}},
+		"negative limit":  {MaxLimit: -1},
+		"negative search": {MaxSearchLength: -1},
 	} {
 		if err := opts.Validate(); !errors.Is(err, ErrInvalidQueryOptions) {
 			t.Errorf("%s: got %v, want ErrInvalidQueryOptions", name, err)
@@ -319,5 +317,17 @@ func TestTieBreakerComparesTheTableQualifier(t *testing.T) {
 		if err := mock.ExpectationsWereMet(); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
+	}
+}
+
+func TestDefaultOrdersNeedNoAllowListButClientOrdersDo(t *testing.T) {
+	if err := (QueryOptions{DefaultOrders: []string{"secret_rank desc"}, AllowedOrderColumns: []string{"name"}}).Validate(); err != nil {
+		t.Fatalf("a fixed server-side order must not need to be client-sortable: %v", err)
+	}
+	_, _, err := NewRepository[sampleRecord](newDryRunDB(t)).GetAll(context.Background(),
+		filter.BaseParams{OrderBy: "secret_rank", OrderDirection: "asc", Limit: 1},
+		QueryOptions{DefaultOrders: []string{"secret_rank desc"}, AllowedOrderColumns: []string{"name"}})
+	if !errors.Is(err, ErrInvalidOrderColumn) {
+		t.Fatalf("a client order outside the allow-list is still rejected, got %v", err)
 	}
 }

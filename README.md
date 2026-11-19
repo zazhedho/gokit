@@ -225,7 +225,7 @@ Column, field and order names are validated as identifiers (ASCII letters, digit
 | `AllowedFilters` | Filter keys that become `column = ?` (or `IN` for arrays). When empty, filters are ignored. Blank strings and `nil` mean no filter. |
 | `FilterSanitizer` | Replaces the default `WhitelistFilter`. Keys it returns outside `AllowedFilters` fail the query with `ErrInvalidQueryOptions`. |
 | `AllowedOrderColumns` | Columns a client may order by. |
-| `DefaultOrders` | Used when no `order_by` and direction are set; each entry is `"column asc"` or `"column desc"` and its column must also be in `AllowedOrderColumns`. |
+| `DefaultOrders` | Used when no `order_by` and direction are set; each entry is `"column asc"` or `"column desc"` (trusted config: checked for syntax and identifier safety only, so the column need not be in `AllowedOrderColumns`). |
 | `MaxLimit` | Page size cap. Default 100 (`DefaultMaxLimit`). |
 | `AllowAll` | Honors `limit=-1` as "every row". Off by default. |
 
@@ -345,7 +345,7 @@ func NewProductService(db *gorm.DB) *ProductService {
 
 - Requests without an `Origin` header pass through untouched.
 - Only a real preflight (`OPTIONS` with `Origin` and `Access-Control-Request-Method`) is answered: 204 for an allowed origin, 403 for a disallowed one. Any other `OPTIONS` request reaches your handlers.
-- With specific origins, `Vary: Origin` is always sent and an allowed origin is echoed back, along with the `Expose` headers.
+- With specific origins, `Vary: Origin` is sent on every response, with or without an `Origin` header, and an allowed origin is echoed back along with the `Expose` headers. The open default sends no `Vary`.
 
 **Rate limiting.** `RateLimitOptions` fields:
 

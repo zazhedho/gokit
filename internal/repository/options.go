@@ -72,7 +72,7 @@ func (o QueryOptions) maxSearchLength() int {
 
 // Validate reports a misconfiguration as an error wrapping ErrInvalidQueryOptions:
 // a negative cap, an invalid identifier in AllowedFilters or
-// AllowedOrderColumns, or a DefaultOrders entry that is malformed or not allowed. GetAll calls it on every query.
+// AllowedOrderColumns, or a DefaultOrders entry that is malformed (trusted config, so no allow-list). GetAll calls it on every query.
 func (o QueryOptions) Validate() error {
 	if o.MaxLimit < 0 || o.MaxSearchLength < 0 {
 		return fmt.Errorf("%w: MaxLimit and MaxSearchLength must not be negative", ErrInvalidQueryOptions)
@@ -88,12 +88,8 @@ func (o QueryOptions) Validate() error {
 		}
 	}
 	for _, order := range o.DefaultOrders {
-		spec, err := parseOrder(order)
-		if err != nil {
+		if _, err := parseOrder(order); err != nil {
 			return fmt.Errorf("%w: DefaultOrders entry %q must be \"column asc|desc\"", ErrInvalidQueryOptions, order)
-		}
-		if !slices.Contains(o.AllowedOrderColumns, spec.column) {
-			return fmt.Errorf("%w: DefaultOrders column %q is not in AllowedOrderColumns", ErrInvalidQueryOptions, spec.column)
 		}
 	}
 	return nil
