@@ -5,6 +5,8 @@ import (
 	"slices"
 
 	"gorm.io/gorm"
+
+	"github.com/zazhedho/gokit/internal/filter"
 )
 
 const (
@@ -95,3 +97,15 @@ func (o QueryOptions) Validate() error {
 }
 
 func (o QueryOptions) allowsFilter(key string) bool { return slices.Contains(o.AllowedFilters, key) }
+
+// PageSize returns the limit GetAll applies for p: MaxLimit when p.Limit is
+// below 1 or above MaxLimit, p.Limit otherwise, and -1 for limit=-1 with AllowAll.
+func (o QueryOptions) PageSize(p filter.BaseParams) int {
+	if o.AllowAll && p.Limit == -1 {
+		return -1
+	}
+	if limit := o.maxLimit(); p.Limit < 1 || p.Limit > limit {
+		return limit
+	}
+	return p.Limit
+}

@@ -171,13 +171,12 @@ func applyOrdering(query *gorm.DB, params filter.BaseParams, opts QueryOptions, 
 	return query, nil
 }
 
-// effectivePaging resolves the limit and offset GetAll uses. all is true for
-// limit=-1 with AllowAll, which means no LIMIT and no OFFSET.
+// effectivePaging resolves limit and offset from PageSize; all means no LIMIT or OFFSET.
 func effectivePaging(params filter.BaseParams, opts QueryOptions) (limit, offset int, all bool) {
-	if opts.AllowAll && params.Limit == -1 {
+	limit = opts.PageSize(params)
+	if limit == -1 {
 		return 0, 0, true
 	}
-	limit = min(max(params.Limit, 1), opts.maxLimit())
 	if params.Page >= 1 {
 		return limit, filter.SaturatingOffset(params.Page, limit), false
 	}

@@ -68,7 +68,7 @@ func (r *Repository[T]) GetOneByField(ctx context.Context, field string, value a
 
 // GetManyByField returns up to limit rows where field equals value, ordered by
 // order ("column asc|desc"; empty orders by the key) and then by the key. limit
-// is clamped to 1..DefaultMaxLimit. An invalid order wraps ErrInvalidOrderColumn
+// is DefaultMaxLimit when below 1 or above it. An invalid order wraps ErrInvalidOrderColumn
 // or ErrInvalidOrderDirection.
 func (r *Repository[T]) GetManyByField(ctx context.Context, field string, value any, limit int, order string) ([]T, error) {
 	return r.impl().GetManyByField(ctx, field, value, limit, order)
@@ -87,18 +87,8 @@ func (r *Repository[T]) ExistsByFields(ctx context.Context, filters map[string]a
 	return r.impl().ExistsByFields(ctx, filters)
 }
 
-// GetAll returns one page of rows and the total count of rows matching the
-// base query, search and filters.
-//
-// opts.Validate is checked first. BaseQuery and Search run with their WHERE
-// conditions grouped, so an Or() inside cannot widen the query. The search text
-// is truncated to MaxSearchLength. Filters apply only for AllowedFilters keys,
-// and an order outside AllowedOrderColumns returns ErrInvalidOrderColumn. Rows
-// are ordered by the requested or default order and then by the key column.
-// The limit is clamped to 1..MaxLimit (default 100) and limit=-1 returns every
-// row only with AllowAll. With params.Page of at least 1 the offset is derived
-// from Page and the effective limit; otherwise params.Offset is used, never
-// below 0.
+// GetAll returns one page of rows and the total count. The limit is
+// QueryOptions.PageSize; the offset is derived from Page when it is >= 1.
 func (r *Repository[T]) GetAll(ctx context.Context, params BaseParams, opts QueryOptions) ([]T, int64, error) {
 	return r.impl().GetAll(ctx, params, opts)
 }

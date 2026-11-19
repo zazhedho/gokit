@@ -53,6 +53,11 @@ func GetBaseParams(query url.Values, defOrderBy, defOrderDirection string, defLi
 	if defLimit < 1 {
 		return req, fmt.Errorf("default limit must be at least 1, got %d", defLimit)
 	}
+	defer func() {
+		if err != nil { // never hand back a half-parsed struct
+			req = BaseParams{Page: 1, Limit: defLimit, OrderBy: defOrderBy, OrderDirection: defOrderDirection}
+		}
+	}()
 	req.Search = query.Get("search")
 	req.OrderBy = query.Get("order_by")
 	req.OrderDirection = query.Get("order_direction")
@@ -79,11 +84,10 @@ func parseQueryInt(query url.Values, key string) (int, error) {
 	if !ok {
 		return 0, nil
 	}
-	value := ""
-	if len(values) > 0 {
-		value = values[0]
+	if len(values) == 0 || values[0] == "" {
+		return 0, nil
 	}
-	return strconv.Atoi(value)
+	return strconv.Atoi(values[0])
 }
 
 func normalizePagination(req *BaseParams, defaultLimit int) {

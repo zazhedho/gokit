@@ -189,3 +189,28 @@ func TestWhitelistStringFilterConvertsValues(t *testing.T) {
 		t.Fatal("expected disallowed key to be removed")
 	}
 }
+
+func TestGetBaseParamsLimitRule(t *testing.T) {
+	for raw, want := range map[string]int{"": 20, "0": 20, "-5": 20, "-1": -1, "7": 7, "99999": 99999} {
+		q := url.Values{"limit": {raw}}
+		got, err := GetBaseParams(q, "id", "asc", 20)
+		if err != nil || got.Limit != want {
+			t.Errorf("limit=%q: got %d, %v; want %d", raw, got.Limit, err, want)
+		}
+	}
+	if got, err := GetBaseParams(url.Values{"page": {""}}, "id", "asc", 20); err != nil || got.Page != 1 {
+		t.Errorf("empty page: %+v %v", got, err)
+	}
+}
+
+func TestGetBaseParamsErrorsReturnSafeStruct(t *testing.T) {
+	for _, q := range []url.Values{{"limit": {"abc"}, "page": {"9"}}, {"limit": {"99999999999999999999"}}, {"page": {"x"}, "limit": {"5"}}} {
+		got, err := GetBaseParams(q, "name", "desc", 20)
+		if err == nil {
+			t.Fatalf("%v must error", q)
+		}
+		if got.Limit != 20 || got.Page != 1 || got.Offset != 0 || got.OrderBy != "name" {
+			t.Fatalf("%v: unsafe struct %+v", q, got)
+		}
+	}
+}

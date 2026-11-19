@@ -62,16 +62,9 @@ type QueryOptions = repository.QueryOptions
 // SearchFunc applies a free-text search to a GORM query.
 type SearchFunc = repository.SearchFunc
 
-// GetBaseParams parses search, filters, paging and ordering from query.
-//
-// defLimit must be at least 1 (it replaces a missing or non-positive limit);
-// otherwise an error is returned. A limit above the repository cap is left as
-// is and clamped by Repository.GetAll. limit=-1 passes through with page 1 and
-// offset 0, and is honored by GetAll only when QueryOptions.AllowAll is set.
-// Filter values are decoded as JSON when valid, keeping numbers as json.Number
-// so large IDs keep their written form, and otherwise kept as strings; objects,
-// nested arrays and arrays over 100 items return ErrInvalidFilter. A non-numeric
-// page or limit also returns an error; respond with 400.
+// GetBaseParams parses search, filters, paging and ordering from query. A
+// missing, empty, zero or negative (other than -1) limit becomes defLimit (>= 1);
+// -1 passes through. A bad page or limit returns an error and a safe struct.
 func GetBaseParams(query url.Values, defOrderBy, defOrderDirection string, defLimit int) (req BaseParams, err error) {
 	return filter.GetBaseParams(query, defOrderBy, defOrderDirection, defLimit)
 }

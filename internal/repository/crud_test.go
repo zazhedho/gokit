@@ -242,7 +242,8 @@ func TestGetManyByFieldHasLimitAndOrder(t *testing.T) {
 		"explicit": {5, "name desc", `WHERE "status" = \$1 ORDER BY "name" DESC,"sample_records"."id" LIMIT \$2`, 5},
 		"default":  {5, "", `ORDER BY "sample_records"."id" LIMIT \$2`, 5},
 		"capped":   {5000, "", `LIMIT \$2`, DefaultMaxLimit},
-		"floor":    {0, "", `LIMIT \$2`, 1},
+		"floor":    {0, "", `LIMIT \$2`, DefaultMaxLimit},
+		"negative": {-4, "", `LIMIT \$2`, DefaultMaxLimit},
 	} {
 		db, mock := newMockDB(t, nil)
 		mock.ExpectQuery(tc.sql).WithArgs("active", tc.arg).WillReturnRows(idRows("1"))

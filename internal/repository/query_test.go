@@ -33,8 +33,10 @@ func TestGetAllClampsLimitToMaxLimit(t *testing.T) {
 		"default cap":                          {filter.BaseParams{Limit: 500, Page: 1}, QueryOptions{}, `LIMIT \$1`, []driver.Value{100}},
 		"custom cap":                           {filter.BaseParams{Limit: 500, Page: 1}, QueryOptions{MaxLimit: 20}, `LIMIT \$1`, []driver.Value{20}},
 		"under cap":                            {filter.BaseParams{Limit: 7, Page: 1}, QueryOptions{}, `LIMIT \$1`, []driver.Value{7}},
-		"minus one":                            {filter.BaseParams{Limit: -1, Page: 1}, QueryOptions{}, `LIMIT \$1`, []driver.Value{1}},
-		"zero":                                 {filter.BaseParams{Limit: 0, Page: 1}, QueryOptions{}, `LIMIT \$1`, []driver.Value{1}},
+		"minus one":                            {filter.BaseParams{Limit: -1, Page: 1}, QueryOptions{}, `LIMIT \$1`, []driver.Value{100}},
+		"minus one capped":                     {filter.BaseParams{Limit: -1, Page: 1}, QueryOptions{MaxLimit: 30}, `LIMIT \$1`, []driver.Value{30}},
+		"negative":                             {filter.BaseParams{Limit: -7, Page: 1}, QueryOptions{}, `LIMIT \$1`, []driver.Value{100}},
+		"zero":                                 {filter.BaseParams{Limit: 0, Page: 1}, QueryOptions{}, `LIMIT \$1`, []driver.Value{100}},
 		"page uses cap":                        {filter.BaseParams{Limit: 500, Page: 3}, QueryOptions{}, `LIMIT \$1 OFFSET \$2`, []driver.Value{100, 200}},
 		"negative offset":                      {filter.BaseParams{Limit: 10, Offset: -5}, QueryOptions{}, `LIMIT \$1$`, []driver.Value{10}},
 		"offset w/o page":                      {filter.BaseParams{Limit: 10, Offset: 30}, QueryOptions{}, `LIMIT \$1 OFFSET \$2`, []driver.Value{10, 30}},
@@ -272,5 +274,21 @@ func TestGetAllSurfacesErrorsAddedByCustomFuncs(t *testing.T) {
 		filter.BaseParams{Limit: 1}, QueryOptions{BaseQuery: func(q *gorm.DB) *gorm.DB { _ = q.AddError(boom); return q }})
 	if !errors.Is(err, boom) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestPageSizeMatchesGetAll(t *testing.T) {
+	for _, tc := range []struct {
+		limit int
+		opts  QueryOptions
+		want  int
+	}{
+		{10, QueryOptions{}, 10}, {0, QueryOptions{}, 100}, {-3, QueryOptions{}, 100}, {-1, QueryOptions{}, 100},
+		{500, QueryOptions{}, 100}, {500, QueryOptions{MaxLimit: 20}, 20}, {-1, QueryOptions{AllowAll: true}, -1},
+		{50, QueryOptions{AllowAll: true}, 50}, {-2, QueryOptions{AllowAll: true}, 100},
+	} {
+		if got := tc.opts.PageSize(filter.BaseParams{Limit: tc.limit}); got != tc.want {
+			t.Errorf("PageSize(limit=%d, %+v) = %d, want %d", tc.limit, tc.opts, got, tc.want)
+		}
 	}
 }

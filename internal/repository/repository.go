@@ -165,7 +165,9 @@ func (r *Repository[T]) GetManyByField(ctx context.Context, field string, value 
 	}
 	query = query.Order(clause.OrderByColumn{Column: keyColumn(key)})
 
-	limit = min(max(limit, 1), DefaultMaxLimit)
+	if limit < 1 || limit > DefaultMaxLimit {
+		limit = DefaultMaxLimit
+	}
 	if err = query.Limit(limit).Find(&ret).Error; err != nil {
 		return nil, err
 	}
