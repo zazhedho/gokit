@@ -137,7 +137,7 @@ func TitleCase(s string) string { return utils.TitleCase(s) }
 // TitleHumanized humanizes a key and converts it to title case.
 func TitleHumanized(value string) string { return utils.TitleHumanized(value) }
 
-// ValidateUUID validates a UUID string and returns its canonical form. It
+// ValidateUUID validates a UUID string and returns it unchanged. It
 // returns ErrMissingID or ErrInvalidUUID on failure.
 func ValidateUUID(id string) (string, error) { return utils.ValidateUUID(id) }
 
