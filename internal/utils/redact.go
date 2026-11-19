@@ -2,8 +2,10 @@ package utils
 
 import (
 	"bytes"
+	"encoding"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -159,11 +161,132 @@ func redact(input any, extra []string, depth int) any {
 		return input
 	}
 
-	raw, err := json.Marshal(input)
+	generic, err := toGeneric(reflect.ValueOf(input), depth)
 	if err != nil {
 		return unredactableValue
 	}
-	return redactBytes(raw, extra, depth)
+	return redactGeneric(generic, extra, depth)
+}
+
+var (
+	jsonMarshalerType = reflect.TypeFor[json.Marshaler]()
+	textMarshalerType = reflect.TypeFor[encoding.TextMarshaler]()
+	rawMessageType    = reflect.TypeFor[json.RawMessage]()
+)
+
+// toGeneric converts v to maps, slices and scalars the way encoding/json would
+// name them, except that []byte and json.RawMessage hold JSON to be redacted
+// rather than base64 text.
+func toGeneric(v reflect.Value, depth int) (any, error) {
+	if depth > maxRedactDepth {
+		return nil, errors.New("too deep")
+	}
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return nil, nil
+		}
+		if v.Type().Implements(jsonMarshalerType) || v.Type().Implements(textMarshalerType) {
+			return viaJSON(v)
+		}
+		v = v.Elem()
+		depth++
+		if depth > maxRedactDepth {
+			return nil, errors.New("too deep")
+		}
+	}
+	t := v.Type()
+	if t == rawMessageType || (t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8) {
+		return redactBytes(v.Bytes(), nil, depth), nil
+	}
+	if t.Implements(jsonMarshalerType) || t.Implements(textMarshalerType) ||
+		(v.CanAddr() && (reflect.PointerTo(t).Implements(jsonMarshalerType) || reflect.PointerTo(t).Implements(textMarshalerType))) {
+		return viaJSON(v)
+	}
+
+	switch v.Kind() {
+	case reflect.Struct:
+		out := map[string]any{}
+		return out, structFields(v, out, depth)
+	case reflect.Map:
+		if v.IsNil() {
+			return nil, nil
+		}
+		out := make(map[string]any, v.Len())
+		iter := v.MapRange()
+		for iter.Next() {
+			val, err := toGeneric(iter.Value(), depth+1)
+			if err != nil {
+				return nil, err
+			}
+			out[fmt.Sprint(iter.Key().Interface())] = val
+		}
+		return out, nil
+	case reflect.Slice, reflect.Array:
+		if v.Kind() == reflect.Slice && v.IsNil() {
+			return nil, nil
+		}
+		out := make([]any, v.Len())
+		for i := range out {
+			val, err := toGeneric(v.Index(i), depth+1)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = val
+		}
+		return out, nil
+	case reflect.Chan, reflect.Func, reflect.UnsafePointer, reflect.Complex64, reflect.Complex128:
+		return nil, errors.New("unsupported kind")
+	}
+	return v.Interface(), nil
+}
+
+func structFields(v reflect.Value, out map[string]any, depth int) error {
+	t := v.Type()
+	for i := range t.NumField() {
+		f := t.Field(i)
+		tag, hasTag := f.Tag.Lookup("json")
+		name, opts, _ := strings.Cut(tag, ",")
+		if name == "-" && opts == "" && hasTag || (!f.IsExported() && !f.Anonymous) {
+			continue
+		}
+		fv := v.Field(i)
+		if f.Anonymous && name == "" {
+			if inner := reflect.Indirect(fv); inner.Kind() == reflect.Struct {
+				if err := structFields(inner, out, depth+1); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		if !f.IsExported() {
+			continue
+		}
+		if strings.Contains(","+opts+",", ",omitempty,") && fv.IsZero() {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		val, err := toGeneric(fv, depth+1)
+		if err != nil {
+			return err
+		}
+		out[name] = val
+	}
+	return nil
+}
+
+// viaJSON uses the value's own marshaler and decodes the result.
+func viaJSON(v reflect.Value) (any, error) {
+	raw, err := json.Marshal(v.Interface())
+	if err != nil {
+		return nil, err
+	}
+	decoded, ok := decodeJSON(raw)
+	if !ok {
+		return nil, errors.New("undecodable")
+	}
+	return decoded, nil
 }
 
 func decodeJSON(raw []byte) (any, bool) {

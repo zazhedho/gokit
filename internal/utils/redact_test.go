@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 )
 
 func TestRedactSensitivePayload(t *testing.T) {
@@ -211,5 +212,52 @@ func TestRedactSurvivesSelfReferentialMaps(t *testing.T) {
 	}
 	if depth > 40 {
 		t.Fatalf("depth %d not capped", depth)
+	}
+}
+
+func TestRedactDecodesByteFieldsInsideStructs(t *testing.T) {
+	type payload struct {
+		Name    string          `json:"name"`
+		Body    []byte          `json:"body"`
+		Raw     json.RawMessage `json:"raw"`
+		Garbage []byte          `json:"garbage"`
+		Hidden  string          `json:"-"`
+		When    time.Time       `json:"when"`
+		Opt     string          `json:"opt,omitempty"`
+	}
+	in := &payload{
+		Name: "n", Body: []byte(`{"password":"p","keep":1}`), Raw: json.RawMessage(`[{"token":"t"}]`),
+		Garbage: []byte("not json"), Hidden: "h", When: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+	}
+	got, ok := RedactSensitivePayload(in).(map[string]any)
+	if !ok {
+		t.Fatalf("got %T", RedactSensitivePayload(in))
+	}
+	if got["body"].(map[string]any)["password"] != "[REDACTED]" || got["body"].(map[string]any)["keep"] != json.Number("1") {
+		t.Fatalf("[]byte field must be decoded and redacted, got %#v", got["body"])
+	}
+	if got["raw"].([]any)[0].(map[string]any)["token"] != "[REDACTED]" {
+		t.Fatalf("RawMessage field: %#v", got["raw"])
+	}
+	if got["garbage"] != "[UNREDACTABLE]" {
+		t.Fatalf("undecodable bytes: %#v", got["garbage"])
+	}
+	if _, present := got["Hidden"]; present || got["name"] != "n" || got["when"] != "2026-01-02T03:04:05Z" {
+		t.Fatalf("tags and marshalers must be honored: %#v", got)
+	}
+	if _, present := got["opt"]; present {
+		t.Fatalf("omitempty field must be skipped: %#v", got)
+	}
+}
+
+func TestRedactSurvivesPointerCycles(t *testing.T) {
+	type node struct {
+		Name string `json:"name"`
+		Next *node  `json:"next"`
+	}
+	n := &node{Name: "a"}
+	n.Next = n
+	if got := RedactSensitivePayload(n); got == nil {
+		t.Fatal("must terminate with a value")
 	}
 }
