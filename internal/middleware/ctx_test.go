@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestSetContextIDPropagatesRequestID(t *testing.T) {
+func TestRequestIDMiddlewarePropagatesRequestID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, header := range []string{"", uuid.NewString()} {
 		recorder := httptest.NewRecorder()
@@ -20,13 +20,13 @@ func TestSetContextIDPropagatesRequestID(t *testing.T) {
 			ctx.Request.Header.Set("X-Request-ID", header)
 		}
 
-		SetContextId()(ctx)
+		RequestIDMiddleware()(ctx)
 
 		requestID, err := uuid.Parse(ctx.Writer.Header().Get("X-Request-ID"))
 		if err != nil {
 			t.Fatalf("expected response request id, got %v", err)
 		}
-		if got := utils.GenerateLogId(ctx.Request.Context()); got != requestID {
+		if got := utils.RequestID(ctx.Request.Context()); got != requestID {
 			t.Fatalf("expected request context id %s, got %s", requestID, got)
 		}
 	}

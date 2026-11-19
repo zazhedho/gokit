@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 )
 
-func JsonEncode(data any) string {
+// JSONEncode marshals data to a JSON string, returning "" on failure.
+func JSONEncode(data any) string {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return ""

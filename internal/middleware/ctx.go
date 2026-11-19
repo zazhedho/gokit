@@ -1,32 +1,36 @@
 package middleware
 
 import (
-	"github.com/zazhedho/gokit/internal/utils"
-
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/zazhedho/logus"
+
+	"github.com/zazhedho/gokit/internal/utils"
 )
 
-func SetContextId() gin.HandlerFunc {
+// RequestIDMiddleware gives each request an ID: a valid UUID in X-Request-ID,
+// else a new one. The ID is stored under logus.CtxKeyRequestID, on the request
+// context and in the X-Request-ID response header.
+func RequestIDMiddleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		var ctxId uuid.UUID
-		if requestID := ctx.GetHeader("X-Request-ID"); requestID != "" {
-			if parsedID, err := uuid.Parse(requestID); err == nil {
-				ctxId = parsedID
+		var id uuid.UUID
+		if header := ctx.GetHeader("X-Request-ID"); header != "" {
+			if parsed, err := uuid.Parse(header); err == nil {
+				id = parsed
 			}
 		}
 
-		if ctxId == uuid.Nil {
+		if id == uuid.Nil {
 			newID, err := uuid.NewV7()
 			if err != nil {
 				newID = uuid.New()
 			}
-			ctxId = newID
+			id = newID
 		}
 
-		ctx.Set(utils.CtxKeyId, ctxId)
-		ctx.Request = ctx.Request.WithContext(utils.WithRequestID(ctx.Request.Context(), ctxId))
-		ctx.Writer.Header().Set("X-Request-ID", ctxId.String())
+		ctx.Set(logus.CtxKeyRequestID, id)
+		ctx.Request = ctx.Request.WithContext(utils.WithRequestID(ctx.Request.Context(), id))
+		ctx.Writer.Header().Set("X-Request-ID", id.String())
 		ctx.Next()
 	}
 }

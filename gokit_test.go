@@ -30,42 +30,37 @@ func (record) TableName() string { return "records" }
 // Compile-time proof that every facade identifier exists with the expected shape.
 var (
 	// helpers
-	_ func(map[string]any, ...string) map[string]any            = gokit.ConvertValuesToString
-	_ func() string                                             = gokit.CreateUUID
-	_ func([]string, time.Duration) time.Duration               = gokit.DurationFromEnv
-	_ func(context.Context) uuid.UUID                           = gokit.GenerateLogId
-	_ func(string, int) int                                     = gokit.GetEnv[int]
-	_ func() error                                              = gokit.EnvErrors
-	_ func()                                                    = gokit.ResetEnvErrors
-	_ func(context.Context) string                              = gokit.GetRequestID
-	_ func(any) string                                          = gokit.InterfaceString
-	_ func(any) string                                          = gokit.JsonEncode
-	_ func(any) any                                             = gokit.RedactSensitivePayload
-	_ func(string) (string, error)                              = gokit.ValidateUUID
-	_ func(context.Context, uuid.UUID) context.Context          = gokit.WithRequestID
-	_ func(error, reflect.Type, string) []gokit.ValidateMessage = gokit.ValidateError
-	_ gokit.ValidateMessage
+	_ func(map[string]any, ...string) map[string]any        = gokit.ConvertValuesToString
+	_ func() string                                         = gokit.CreateUUID
+	_ func([]string, time.Duration) time.Duration           = gokit.DurationFromEnv
+	_ func(context.Context) uuid.UUID                       = gokit.RequestID
+	_ func(string, int) int                                 = gokit.GetEnv[int]
+	_ func() error                                          = gokit.EnvErrors
+	_ func()                                                = gokit.ResetEnvErrors
+	_ func(any) string                                      = gokit.InterfaceString
+	_ func(any) string                                      = gokit.JSONEncode
+	_ func(any) any                                         = gokit.RedactSensitivePayload
+	_ func(string) (string, error)                          = gokit.ValidateUUID
+	_ func(context.Context, uuid.UUID) context.Context      = gokit.WithRequestID
+	_ func(error, reflect.Type, string) []gokit.ErrorDetail = gokit.ValidateError
+	_ gokit.ErrorDetail
 	_ error = gokit.ErrMissingID
 	_ error = gokit.ErrInvalidUUID
 
 	// http
-	_ func(int, string, uuid.UUID, string) *gokit.ApiResponse           = gokit.ErrorResponse
-	_ func(uuid.UUID, string) *gokit.ApiResponse                        = gokit.Forbidden
-	_ func(uuid.UUID) *gokit.ApiResponse                                = gokit.InternalServerError
-	_ func(int, string, uuid.UUID, any) *gokit.ApiResponse              = gokit.Response
-	_ func(uuid.UUID, string) *gokit.ApiResponse                        = gokit.Unauthorized
-	_ func(int, int, int, int, uuid.UUID, any) *gokit.PaginatedResponse = gokit.PaginationResponse
-	_ func() gin.HandlerFunc                                            = gokit.CORS
-	_ func(*redis.Client, int, time.Duration) gin.HandlerFunc           = gokit.EndpointRateLimitMiddleware
-	_ func(*gin.Context, any)                                           = gokit.ErrorHandler
-	_ func(*redis.Client, string, int, time.Duration) gin.HandlerFunc   = gokit.IPRateLimitMiddleware
-	_ func() gin.HandlerFunc                                            = gokit.SetContextId
-	_ func(*gin.Context, uuid.UUID, string, *record) bool               = gokit.BindJSON[record]
-	_ func(*gin.Context, uuid.UUID) (string, error)                     = gokit.ValidateUUIDParam
-	_ gokit.Error
-	_ gokit.Errors
-	_ gokit.Pagination
-	_ gokit.Success
+	_ func(int, string, uuid.UUID, string) *gokit.APIResponse             = gokit.ErrorResponse
+	_ func(uuid.UUID, string) *gokit.APIResponse                          = gokit.Forbidden
+	_ func(uuid.UUID) *gokit.APIResponse                                  = gokit.InternalServerError
+	_ func(int, string, uuid.UUID, any) *gokit.APIResponse                = gokit.Response
+	_ func(uuid.UUID, string) *gokit.APIResponse                          = gokit.Unauthorized
+	_ func(int, int64, int, int, uuid.UUID, any) *gokit.PaginatedResponse = gokit.PaginationResponse
+	_ func() gin.HandlerFunc                                              = gokit.CORS
+	_ func(*redis.Client, int, time.Duration) gin.HandlerFunc             = gokit.EndpointRateLimitMiddleware
+	_ func() gin.HandlerFunc                                              = gokit.Recovery
+	_ func(*redis.Client, string, int, time.Duration) gin.HandlerFunc     = gokit.IPRateLimitMiddleware
+	_ func() gin.HandlerFunc                                              = gokit.RequestIDMiddleware
+	_ func(*gin.Context, uuid.UUID, string, *record) bool                 = gokit.BindJSON[record]
+	_ func(*gin.Context, uuid.UUID) (string, error)                       = gokit.ValidateUUIDParam
 	_ gokit.PaginatedResponse
 
 	// data
@@ -82,7 +77,7 @@ var (
 
 // Constants keep their string values.
 const (
-	_ string = gokit.CtxKeyId
+	_ string = gokit.CtxKeyRequestID
 	_ string = gokit.MsgInvalidRequest
 	_ string = gokit.MsgSomethingWrong
 	_ string = gokit.MsgInternal
@@ -177,10 +172,7 @@ func TestNewRepositoryWithSQLMock(t *testing.T) {
 func TestRequestIDRoundTrip(t *testing.T) {
 	id := uuid.New()
 	ctx := gokit.WithRequestID(context.Background(), id)
-	if got := gokit.GetRequestID(ctx); got != id.String() {
-		t.Fatalf("got %q, want %q", got, id)
-	}
-	if got := gokit.GenerateLogId(ctx); got != id {
+	if got := gokit.RequestID(ctx); got != id {
 		t.Fatalf("got %v, want %v", got, id)
 	}
 }

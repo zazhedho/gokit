@@ -1,20 +1,17 @@
 package utils
 
 import (
-	"context"
 	"errors"
-	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 )
 
 func TestJSONAndStringHelpers(t *testing.T) {
-	if got := JsonEncode(map[string]string{"name": "Jane"}); !strings.Contains(got, "Jane") {
+	if got := JSONEncode(map[string]string{"name": "Jane"}); !strings.Contains(got, "Jane") {
 		t.Fatalf("unexpected JSON encoding: %q", got)
 	}
 	if NormalizePayload(struct {
@@ -25,44 +22,12 @@ func TestJSONAndStringHelpers(t *testing.T) {
 	if CreateUUID() == "" {
 		t.Fatal("expected uuid")
 	}
-	if got := JsonEncode(make(chan int)); got != "" {
+	if got := JSONEncode(make(chan int)); got != "" {
 		t.Fatalf("expected empty string for unsupported JSON value, got %q", got)
 	}
 	ch := make(chan int)
 	if NormalizePayload(ch) != ch {
 		t.Fatal("expected unsupported payload to be returned unchanged")
-	}
-}
-
-func TestGenerateLogIdAndRequestID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
-
-	id := uuid.New()
-	ctx.Set(CtxKeyId, id)
-	if got := GenerateLogId(ctx); got != id {
-		t.Fatalf("expected stored uuid, got %s", got)
-	}
-	if got := GetRequestID(ctx); got != id.String() {
-		t.Fatalf("expected request id string, got %q", got)
-	}
-
-	ctx.Set(CtxKeyId, "not-a-uuid")
-	if GenerateLogId(ctx) == uuid.Nil {
-		t.Fatal("expected generated uuid for invalid string")
-	}
-
-	ctx.Set(CtxKeyId, " request-id ")
-	if got := GetRequestID(ctx); got != "request-id" {
-		t.Fatalf("expected trimmed request id, got %q", got)
-	}
-
-	requestContext := WithRequestID(context.Background(), id)
-	if got := GenerateLogId(requestContext); got != id {
-		t.Fatalf("expected context request id, got %s", got)
-	}
-	if got := GetRequestID(requestContext); got != id.String() {
-		t.Fatalf("expected context request id string, got %q", got)
 	}
 }
 

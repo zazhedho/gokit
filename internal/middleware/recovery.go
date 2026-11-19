@@ -1,20 +1,63 @@
 package middleware
 
 import (
-	"fmt"
+	"errors"
+	"net"
 	"net/http"
-
-	"github.com/zazhedho/gokit/internal/response"
-	"github.com/zazhedho/gokit/internal/utils"
-	"github.com/zazhedho/logus"
+	"os"
+	"runtime/debug"
+	"strings"
+	"syscall"
 
 	"github.com/gin-gonic/gin"
+	"github.com/zazhedho/logus"
+
+	"github.com/zazhedho/gokit/internal/response"
 )
 
-func ErrorHandler(c *gin.Context, err any) {
-	logId := utils.GenerateLogId(c)
-	logus.LogContext(c, logus.LevelError, fmt.Sprintf("RECOVERY; Error: %+v;", err))
+// Recovery recovers from panics in later handlers. It logs the panic value and
+// stack with the request ID, then answers 500 with an envelope that carries only
+// the log ID. http.ErrAbortHandler is propagated, as net/http expects. Register
+// it after RequestIDMiddleware so the logged and returned IDs match the request.
+func Recovery() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		defer func() {
+			rec := recover()
+			if rec == nil {
+				return
+			}
+			if rec == http.ErrAbortHandler { //nolint:errorlint // net/http compares by identity
+				panic(rec)
+			}
 
-	res := response.InternalServerError(logId)
-	c.AbortWithStatusJSON(http.StatusInternalServerError, res)
+			id := logus.RequestID(c)
+			logCtx := logus.WithRequestID(c.Request.Context(), id)
+			logus.LogContextf(logCtx, logus.LevelError, "RECOVERY; panic: %v; stack: %s", rec, debug.Stack())
+
+			if isBrokenPipe(rec) {
+				c.Abort()
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusInternalServerError, response.InternalServerError(id))
+		}()
+		c.Next()
+	}
+}
+
+func isBrokenPipe(rec any) bool {
+	err, ok := rec.(error)
+	if !ok {
+		return false
+	}
+	var opErr *net.OpError
+	if !errors.As(err, &opErr) {
+		return false
+	}
+	var sysErr *os.SyscallError
+	if !errors.As(opErr.Err, &sysErr) {
+		return false
+	}
+	msg := strings.ToLower(sysErr.Error())
+	return errors.Is(sysErr.Err, syscall.EPIPE) || errors.Is(sysErr.Err, syscall.ECONNRESET) ||
+		strings.Contains(msg, "broken pipe") || strings.Contains(msg, "connection reset by peer")
 }

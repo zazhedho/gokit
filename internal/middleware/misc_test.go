@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,12 +30,12 @@ func TestCORSHandlesOptionsAndSetsHeaders(t *testing.T) {
 	}
 }
 
-func TestSetContextIdUsesExistingRequestID(t *testing.T) {
+func TestRequestIDMiddlewareUsesExistingRequestID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Use(SetContextId())
+	router.Use(RequestIDMiddleware())
 	router.GET("/ping", func(ctx *gin.Context) {
-		if _, ok := ctx.Get(utils.CtxKeyId); !ok {
+		if _, ok := ctx.Get(logus.CtxKeyRequestID); !ok {
 			t.Fatal("expected context id to be set")
 		}
 		ctx.String(http.StatusOK, "ok")
@@ -53,46 +52,16 @@ func TestSetContextIdUsesExistingRequestID(t *testing.T) {
 	}
 }
 
-func TestErrorHandlerReturns500WithRequestLogID(t *testing.T) {
+func TestRequestIDMiddlewareSharesIDWithLogus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Use(SetContextId())
-	router.Use(gin.CustomRecovery(ErrorHandler))
-	router.GET("/panic", func(ctx *gin.Context) {
-		panic("boom")
-	})
-
-	id := uuid.New()
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
-	req.Header.Set("X-Request-ID", id.String())
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d body=%s", rec.Code, rec.Body.String())
-	}
-	var body map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("invalid json body: %v: %s", err, rec.Body.String())
-	}
-	if body["log_id"] != id.String() {
-		t.Fatalf("expected log_id %s, got %v", id, body["log_id"])
-	}
-	if got := rec.Header().Get("X-Request-ID"); got != id.String() {
-		t.Fatalf("expected X-Request-ID %s, got %s", id, got)
-	}
-}
-
-func TestSetContextIdSharesIDWithLogus(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	router.Use(SetContextId())
+	router.Use(RequestIDMiddleware())
 
 	var fromGin, fromRequestCtx, fromUtils uuid.UUID
 	router.GET("/ping", func(c *gin.Context) {
 		fromGin = logus.RequestID(c)
 		fromRequestCtx = logus.RequestID(c.Request.Context())
-		fromUtils = utils.GenerateLogId(c)
+		fromUtils = utils.RequestID(c)
 		c.String(http.StatusOK, "ok")
 	})
 

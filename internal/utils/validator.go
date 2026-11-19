@@ -6,12 +6,9 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
-)
 
-type ValidateMessage struct {
-	Field   string `json:"field"`
-	Message string `json:"message"`
-}
+	"github.com/zazhedho/gokit/internal/response"
+)
 
 func mapValidateMessage(fe validator.FieldError) string {
 	switch fe.Tag() {
@@ -38,19 +35,19 @@ func mapValidateMessage(fe validator.FieldError) string {
 	return "Invalid value"
 }
 
-func ValidateError(err error, reflectType reflect.Type, tagName string) []ValidateMessage {
+func ValidateError(err error, reflectType reflect.Type, tagName string) []response.ErrorDetail {
 	if ve, ok := errors.AsType[validator.ValidationErrors](err); ok {
-		out := make([]ValidateMessage, len(ve))
+		out := make([]response.ErrorDetail, len(ve))
 		for i, fe := range ve {
 			field := fe.Field()
 			if structField, ok := reflectType.FieldByName(fe.Field()); ok {
 				field = structField.Tag.Get(tagName)
 			}
-			out[i] = ValidateMessage{field, mapValidateMessage(fe)}
+			out[i] = response.ErrorDetail{Field: field, Code: fe.Tag(), Message: mapValidateMessage(fe)}
 		}
 		return out
 	}
-	return []ValidateMessage{{"", err.Error()}}
+	return []response.ErrorDetail{{Code: "invalid_request", Message: err.Error()}}
 }
 
 var (

@@ -10,11 +10,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/zazhedho/gokit/internal/utils"
+	"github.com/zazhedho/logus"
 )
 
-// CtxKeyId is the context key under which the request ID is stored. It is the
+// CtxKeyRequestID is the context key under which the request ID is stored. It is the
 // same key logus reads, so IDs set here appear in log output.
-const CtxKeyId = utils.CtxKeyId
+const CtxKeyRequestID = logus.CtxKeyRequestID
 
 var (
 	// ErrMissingID is returned by ValidateUUID when the ID is empty.
@@ -22,9 +23,6 @@ var (
 	// ErrInvalidUUID is returned by ValidateUUID when the ID is not a valid UUID.
 	ErrInvalidUUID = utils.ErrInvalidUUID
 )
-
-// ValidateMessage describes a single field validation failure.
-type ValidateMessage = utils.ValidateMessage
 
 // ConvertValuesToString returns filters with the values of the given keys converted to strings.
 func ConvertValuesToString(filters map[string]any, keys ...string) map[string]any {
@@ -40,8 +38,8 @@ func DurationFromEnv(keys []string, fallback time.Duration) time.Duration {
 	return utils.DurationFromEnv(keys, fallback)
 }
 
-// GenerateLogId returns the request ID for ctx as resolved by logus.
-func GenerateLogId(ctx context.Context) uuid.UUID { return utils.GenerateLogId(ctx) }
+// RequestID returns the request ID for ctx as resolved by logus.
+func RequestID(ctx context.Context) uuid.UUID { return utils.RequestID(ctx) }
 
 // GetEnv reads an environment variable converted to T. Unset or blank returns
 // def; an unparsable value returns def and is reported by EnvErrors. Durations
@@ -55,14 +53,11 @@ func EnvErrors() error { return utils.EnvErrors() }
 // ResetEnvErrors clears what EnvErrors reports; meant for tests.
 func ResetEnvErrors() { utils.ResetEnvErrors() }
 
-// GetRequestID returns the request ID stored in ctx as a string.
-func GetRequestID(ctx context.Context) string { return utils.GetRequestID(ctx) }
-
 // InterfaceString converts a dynamic value to a string.
 func InterfaceString(data any) string { return utils.InterfaceString(data) }
 
-// JsonEncode marshals data to a JSON string, returning "" on failure.
-func JsonEncode(data any) string { return utils.JsonEncode(data) }
+// JSONEncode marshals data to a JSON string, returning "" on failure.
+func JSONEncode(data any) string { return utils.JSONEncode(data) }
 
 // RedactSensitivePayload returns input with sensitive fields masked.
 func RedactSensitivePayload(input any) any { return utils.RedactSensitivePayload(input) }
@@ -71,13 +66,13 @@ func RedactSensitivePayload(input any) any { return utils.RedactSensitivePayload
 // returns ErrMissingID or ErrInvalidUUID on failure.
 func ValidateUUID(id string) (string, error) { return utils.ValidateUUID(id) }
 
-// WithRequestID returns a context carrying requestID under CtxKeyId.
+// WithRequestID returns a context carrying requestID under CtxKeyRequestID.
 func WithRequestID(ctx context.Context, requestID uuid.UUID) context.Context {
 	return utils.WithRequestID(ctx, requestID)
 }
 
 // ValidateError converts validator errors into field messages, using the
 // struct tag tagName for field names.
-func ValidateError(err error, reflectType reflect.Type, tagName string) []ValidateMessage {
+func ValidateError(err error, reflectType reflect.Type, tagName string) []ErrorDetail {
 	return utils.ValidateError(err, reflectType, tagName)
 }

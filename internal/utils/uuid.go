@@ -1,23 +1,11 @@
 package utils
 
-import (
-	"context"
+import "github.com/google/uuid"
 
-	"github.com/google/uuid"
-	"github.com/zazhedho/logus"
-)
-
+// CreateUUID returns a new UUIDv7 as a string, or a v4 if v7 generation fails.
 func CreateUUID() string {
-	var id string
-	if uuid7, err := uuid.NewV7(); err == nil {
-		id = uuid7.String()
-	} else {
-		id = uuid.NewString()
+	if id, err := uuid.NewV7(); err == nil {
+		return id.String()
 	}
-
-	return id
-}
-
-func GenerateLogId(ctx context.Context) uuid.UUID {
-	return logus.RequestID(ctx)
+	return uuid.NewString()
 }

@@ -23,14 +23,14 @@ func TestBindJSONReturnsFalseAndWritesBadRequestOnInvalidJSON(t *testing.T) {
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
 	var req bindJSONTestRequest
-	if BindJSON(ctx, utils.GenerateLogId(ctx), "[Test][BindJSON]", &req) {
+	if BindJSON(ctx, utils.RequestID(ctx), "[Test][BindJSON]", &req) {
 		t.Fatal("expected BindJSON to return false")
 	}
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"message":"Bad Request"`) {
+	if !strings.Contains(rec.Body.String(), `"message":"Invalid request format`) {
 		t.Fatalf("expected invalid request response, got %s", rec.Body.String())
 	}
 }
@@ -43,7 +43,7 @@ func TestBindJSONReturnsTrueOnValidJSON(t *testing.T) {
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
 	var req bindJSONTestRequest
-	if !BindJSON(ctx, utils.GenerateLogId(ctx), "[Test][BindJSON]", &req) {
+	if !BindJSON(ctx, utils.RequestID(ctx), "[Test][BindJSON]", &req) {
 		t.Fatal("expected BindJSON to return true")
 	}
 

@@ -32,50 +32,42 @@ const (
 	MsgAccessDenied = messages.MsgAccessDenied
 )
 
-// ApiResponse is the standard JSON response envelope.
-type ApiResponse = response.ApiResponse
+// APIResponse is the standard JSON response envelope.
+type APIResponse = response.APIResponse
 
-// Error has the same shape as ApiResponse, for use as a distinct error type.
-type Error = response.Error
-
-// Errors is a code and message pair for error details.
-type Errors = response.Errors
+// ErrorDetail is one entry of an envelope's error list: a field (when the
+// error is about one), a machine code and a caller-safe message.
+type ErrorDetail = response.ErrorDetail
 
 // PaginatedResponse is the JSON envelope for paginated lists.
 type PaginatedResponse = response.PaginatedResponse
 
-// Pagination has the same shape as PaginatedResponse, for use as a distinct type.
-type Pagination = response.Pagination
-
-// Success has the same shape as ApiResponse, for use as a distinct success type.
-type Success = response.Success
-
 // ErrorResponse builds an error envelope with a public error detail.
-func ErrorResponse(code int, msg string, logId uuid.UUID, publicError string) *ApiResponse {
-	return response.ErrorResponse(code, msg, logId, publicError)
+func ErrorResponse(code int, msg string, logID uuid.UUID, publicError string) *APIResponse {
+	return response.ErrorResponse(code, msg, logID, publicError)
 }
 
 // Forbidden builds a 403 envelope.
-func Forbidden(logId uuid.UUID, publicError string) *ApiResponse {
-	return response.Forbidden(logId, publicError)
+func Forbidden(logID uuid.UUID, publicError string) *APIResponse {
+	return response.Forbidden(logID, publicError)
 }
 
-// InternalServerError builds a 500 envelope that references logId.
-func InternalServerError(logId uuid.UUID) *ApiResponse { return response.InternalServerError(logId) }
+// InternalServerError builds a 500 envelope that references logID.
+func InternalServerError(logID uuid.UUID) *APIResponse { return response.InternalServerError(logID) }
 
 // Response builds an envelope for code, msg and data.
-func Response(code int, msg string, logId uuid.UUID, data any) *ApiResponse {
-	return response.Response(code, msg, logId, data)
+func Response(code int, msg string, logID uuid.UUID, data any) *APIResponse {
+	return response.Response(code, msg, logID, data)
 }
 
 // Unauthorized builds a 401 envelope.
-func Unauthorized(logId uuid.UUID, publicError string) *ApiResponse {
-	return response.Unauthorized(logId, publicError)
+func Unauthorized(logID uuid.UUID, publicError string) *APIResponse {
+	return response.Unauthorized(logID, publicError)
 }
 
 // PaginationResponse builds a paginated envelope.
-func PaginationResponse(code, total, page, perPage int, logId uuid.UUID, data any) *PaginatedResponse {
-	return response.PaginationResponse(code, total, page, perPage, logId, data)
+func PaginationResponse(code int, total int64, page, perPage int, logID uuid.UUID, data any) *PaginatedResponse {
+	return response.PaginationResponse(code, total, page, perPage, logID, data)
 }
 
 // CORS returns middleware that allows any origin and answers OPTIONS preflight
@@ -88,8 +80,10 @@ func EndpointRateLimitMiddleware(redisClient *redis.Client, limit int, window ti
 	return middleware.EndpointRateLimitMiddleware(redisClient, limit, window)
 }
 
-// ErrorHandler is a gin.CustomRecovery handler that logs the panic and writes a 500 envelope.
-func ErrorHandler(c *gin.Context, err any) { middleware.ErrorHandler(c, err) }
+// Recovery recovers from panics: it logs the panic and stack, and answers 500
+// with an envelope that carries only the log ID. Register it after
+// RequestIDMiddleware.
+func Recovery() gin.HandlerFunc { return middleware.Recovery() }
 
 // IPRateLimitMiddleware limits requests per client IP using Redis. A nil
 // client (or a non-positive limit or window) disables limiting.
@@ -97,9 +91,10 @@ func IPRateLimitMiddleware(redisClient *redis.Client, prefix string, limit int, 
 	return middleware.IPRateLimitMiddleware(redisClient, prefix, limit, window)
 }
 
-// // SetContextId assigns each request an ID (a valid X-Request-ID UUID, else new),
-// // stored under CtxKeyId and echoed in the X-Request-ID response header.
-func SetContextId() gin.HandlerFunc { return middleware.SetContextId() }
+// RequestIDMiddleware assigns each request an ID (a valid X-Request-ID UUID,
+// else a new one), stores it under CtxKeyRequestID and on the request context,
+// and echoes it in the X-Request-ID response header. Register it first.
+func RequestIDMiddleware() gin.HandlerFunc { return middleware.RequestIDMiddleware() }
 
 // BindJSON binds the request body into req and writes a 400 envelope on failure.
 func BindJSON[T any](ctx *gin.Context, logID uuid.UUID, logPrefix string, req *T) bool {

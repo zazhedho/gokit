@@ -25,7 +25,7 @@ func IPRateLimitMiddleware(redisClient *redis.Client, prefix string, limit int, 
 			return
 		}
 
-		logId := utils.GenerateLogId(ctx)
+		logID := utils.RequestID(ctx)
 		logPrefix := fmt.Sprintf("[RateLimiter][%s]", prefix)
 
 		ip := ctx.ClientIP()
@@ -48,11 +48,7 @@ func IPRateLimitMiddleware(redisClient *redis.Client, prefix string, limit int, 
 				ctx.Header("Retry-After", strconv.Itoa(int(ttl.Seconds())))
 			}
 
-			res := response.Response(http.StatusTooManyRequests, messages.MsgSomethingWrong, logId, nil)
-			res.Error = response.Errors{
-				Code:    http.StatusTooManyRequests,
-				Message: "Too many requests from this IP, please try again later",
-			}
+			res := response.ErrorResponse(http.StatusTooManyRequests, messages.MsgSomethingWrong, logID, "Too many requests from this IP, please try again later")
 			ctx.AbortWithStatusJSON(http.StatusTooManyRequests, res)
 			return
 		}
@@ -70,7 +66,7 @@ func EndpointRateLimitMiddleware(redisClient *redis.Client, limit int, window ti
 			return
 		}
 
-		logId := utils.GenerateLogId(ctx)
+		logID := utils.RequestID(ctx)
 		logPrefix := "[EndpointRateLimiter]"
 
 		ip := ctx.ClientIP()
@@ -94,11 +90,7 @@ func EndpointRateLimitMiddleware(redisClient *redis.Client, limit int, window ti
 				ctx.Header("Retry-After", strconv.Itoa(int(ttl.Seconds())))
 			}
 
-			res := response.Response(http.StatusTooManyRequests, messages.MsgSomethingWrong, logId, nil)
-			res.Error = response.Errors{
-				Code:    http.StatusTooManyRequests,
-				Message: "Rate limit exceeded for this endpoint",
-			}
+			res := response.ErrorResponse(http.StatusTooManyRequests, messages.MsgSomethingWrong, logID, "Rate limit exceeded for this endpoint")
 			ctx.AbortWithStatusJSON(http.StatusTooManyRequests, res)
 			return
 		}
