@@ -24,11 +24,6 @@ var (
 	ErrInvalidUUID = utils.ErrInvalidUUID
 )
 
-// ConvertValuesToString returns filters with the values of the given keys converted to strings.
-func ConvertValuesToString(filters map[string]any, keys ...string) map[string]any {
-	return utils.ConvertValuesToString(filters, keys...)
-}
-
 // CreateUUID returns a new random UUID as a string.
 func CreateUUID() string { return utils.CreateUUID() }
 

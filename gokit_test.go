@@ -164,7 +164,7 @@ func TestNewRepositoryWithSQLMock(t *testing.T) {
 	}
 
 	repo := gokit.NewRepository[record](db)
-	if err := repo.Store(context.Background(), record{ID: "1"}); err != nil {
+	if err := repo.Store(context.Background(), &record{ID: "1"}); err != nil {
 		t.Fatalf("Store: %v", err)
 	}
 }

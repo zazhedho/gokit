@@ -13,8 +13,10 @@ import (
 	"github.com/zazhedho/gokit/internal/utils"
 )
 
-// maxFilterItems caps the number of elements in an array filter value.
-const maxFilterItems = 100
+// MaxFilterItems caps the number of elements in an array filter value.
+const MaxFilterItems = 100
+
+const maxFilterItems = MaxFilterItems
 
 // ErrInvalidFilter is returned (wrapped) when a filter value is not acceptable:
 // an object, a nested array, an array with too many items, or a filter key

@@ -43,13 +43,13 @@ func TestEmbeddedRepositoryExposesDBAndMethods(t *testing.T) {
 		t.Fatal("embedded DB must be reachable")
 	}
 
-	mock.ExpectQuery(regexp.QuoteMeta(`WHERE id = $1`)).WithArgs("1", 1).
+	mock.ExpectQuery(regexp.QuoteMeta(`WHERE "records"."id" = $1`)).WithArgs("1", 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("1"))
 	if got, err := repo.GetByID(ctx, "1"); err != nil || got.ID != "1" {
 		t.Fatalf("GetByID = %+v, %v", got, err)
 	}
 
-	mock.ExpectQuery(regexp.QuoteMeta(`WHERE name = $1`)).WithArgs("a", 1).
+	mock.ExpectQuery(regexp.QuoteMeta(`WHERE "name" = $1`)).WithArgs("a", 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("2"))
 	if got, err := repo.GetOneByField(ctx, "name", "a"); err != nil || got.ID != "2" {
 		t.Fatalf("GetOneByField = %+v, %v", got, err)
