@@ -257,7 +257,7 @@ func TestRedactSurvivesPointerCycles(t *testing.T) {
 	}
 	n := &node{Name: "a"}
 	n.Next = n
-	if got := RedactSensitivePayload(n); got == nil {
+	if RedactSensitivePayload(n) == nil {
 		t.Fatal("must terminate with a value")
 	}
 }

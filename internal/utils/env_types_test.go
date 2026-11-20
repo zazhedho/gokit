@@ -31,7 +31,7 @@ func TestGetEnvHandlesNamedTypesByKind(t *testing.T) {
 	if got := GetEnv("T_RATIO", ratio(1)); got != 0.25 {
 		t.Fatalf("named float = %v", got)
 	}
-	if got := GetEnv("T_FLAG", flag(false)); !got {
+	if !GetEnv("T_FLAG", flag(false)) {
 		t.Fatal("named bool = false")
 	}
 	if err := EnvErrors(); err != nil {

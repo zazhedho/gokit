@@ -10,6 +10,8 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
+
+	"github.com/zazhedho/gokit/internal/response"
 )
 
 type address struct {
@@ -64,6 +66,20 @@ func TestValidateErrorUsesNestedJSONPaths(t *testing.T) {
 	}
 }
 
+// requireGuardedDetails checks every detail is complete and, unless the type
+// resolves (name "pointer"), that no Go field name leaks into Field.
+func requireGuardedDetails(t *testing.T, name string, details []response.ErrorDetail) {
+	t.Helper()
+	for _, d := range details {
+		if d.Message == "" || d.Code == "" {
+			t.Fatalf("%s: incomplete detail %+v", name, d)
+		}
+		if name != "pointer" && d.Field != "" {
+			t.Fatalf("%s: an unresolvable path must not fall back to a Go field name, got %q", name, d.Field)
+		}
+	}
+}
+
 func TestValidateErrorGuardsTypes(t *testing.T) {
 	err := validator.New().Struct(nestedRequest{})
 	for name, typ := range map[string]reflect.Type{
@@ -76,17 +92,7 @@ func TestValidateErrorGuardsTypes(t *testing.T) {
 		if len(got) == 0 {
 			t.Fatalf("%s: expected messages", name)
 		}
-		for _, d := range got {
-			if d.Message == "" || d.Code == "" {
-				t.Fatalf("%s: incomplete detail %+v", name, d)
-			}
-			if name == "pointer" {
-				continue
-			}
-			if d.Field != "" {
-				t.Fatalf("%s: an unresolvable path must not fall back to a Go field name, got %q", name, d.Field)
-			}
-		}
+		requireGuardedDetails(t, name, got)
 	}
 	if got := fieldMessages(t, err, reflect.TypeOf(&nestedRequest{})); got["address.street"] == "" {
 		t.Fatalf("pointer type must be dereferenced, got %v", got)

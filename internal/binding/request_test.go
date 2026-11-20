@@ -30,16 +30,25 @@ func TestValidateUUIDKeepsHTTPValidationResponses(t *testing.T) {
 
 			got, err := ValidateUUIDParam(ctx, uuid.New())
 			if test.wantError == "" {
-				if err != nil || got != test.value {
-					t.Fatalf("expected id %q, got %q, err=%v", test.value, got, err)
-				}
+				requireID(t, test.value, got, err)
 				return
 			}
-
-			if err == nil || recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), test.wantError) {
-				t.Fatalf("expected HTTP 400 with %q, status=%d body=%s err=%v", test.wantError, recorder.Code, recorder.Body.String(), err)
-			}
+			requireBadRequest(t, recorder, test.wantError, err)
 		})
+	}
+}
+
+func requireID(t *testing.T, want, got string, err error) {
+	t.Helper()
+	if err != nil || got != want {
+		t.Fatalf("expected id %q, got %q, err=%v", want, got, err)
+	}
+}
+
+func requireBadRequest(t *testing.T, recorder *httptest.ResponseRecorder, wantBody string, err error) {
+	t.Helper()
+	if err == nil || recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), wantBody) {
+		t.Fatalf("expected HTTP 400 with %q, status=%d body=%s err=%v", wantBody, recorder.Code, recorder.Body.String(), err)
 	}
 }
 
