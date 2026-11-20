@@ -105,22 +105,37 @@ func filterCondition(key string, value any) (cond clause.Expression, ok bool, er
 		if rv.Type().Elem().Kind() == reflect.Uint8 {
 			break // []byte is a scalar
 		}
-		if rv.Len() > filter.MaxFilterItems {
-			return nil, false, fmt.Errorf("%w: at most %d values are allowed", filter.ErrInvalidFilter, filter.MaxFilterItems)
-		}
-		values := make([]any, rv.Len())
-		for i := range values {
-			item := rv.Index(i).Interface()
-			if k := reflect.ValueOf(item).Kind(); k == reflect.Map || k == reflect.Slice || k == reflect.Array {
-				if _, isBytes := item.([]byte); !isBytes {
-					return nil, false, fmt.Errorf("%w: array items must be scalars", filter.ErrInvalidFilter)
-				}
-			}
-			values[i] = bindValue(item)
-		}
-		return clause.IN{Column: columnOf(key), Values: values}, true, nil
+		cond, err := inCondition(key, rv)
+		return cond, err == nil, err
 	}
 	return whereEq(key, bindValue(value)), true, nil
+}
+
+// inCondition builds an IN condition from a slice or array of scalar values.
+func inCondition(key string, rv reflect.Value) (clause.Expression, error) {
+	if rv.Len() > filter.MaxFilterItems {
+		return nil, fmt.Errorf("%w: at most %d values are allowed", filter.ErrInvalidFilter, filter.MaxFilterItems)
+	}
+	values := make([]any, rv.Len())
+	for i := range values {
+		item := rv.Index(i).Interface()
+		if !isScalarItem(item) {
+			return nil, fmt.Errorf("%w: array items must be scalars", filter.ErrInvalidFilter)
+		}
+		values[i] = bindValue(item)
+	}
+	return clause.IN{Column: columnOf(key), Values: values}, nil
+}
+
+// isScalarItem reports whether item is neither a map nor a slice/array; a
+// []byte counts as a scalar.
+func isScalarItem(item any) bool {
+	switch reflect.ValueOf(item).Kind() {
+	case reflect.Map, reflect.Slice, reflect.Array:
+		_, isBytes := item.([]byte)
+		return isBytes
+	}
+	return true
 }
 
 // bindValue turns a json.Number into the narrowest native value that keeps its
