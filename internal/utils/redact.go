@@ -186,18 +186,8 @@ func toGeneric(v reflect.Value, depth int) (any, error) {
 	if depth > maxRedactDepth {
 		return nil, errors.New("too deep")
 	}
-	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
-		if v.IsNil() {
-			return nil, nil
-		}
-		if isMarshaler(v.Type()) {
-			return viaJSON(v)
-		}
-		v = v.Elem()
-		depth++
-		if depth > maxRedactDepth {
-			return nil, errors.New("too deep")
-		}
+	if v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		return indirectToGeneric(v, depth)
 	}
 	t := v.Type()
 	if t == rawMessageType || (t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8) {
@@ -206,7 +196,20 @@ func toGeneric(v reflect.Value, depth int) (any, error) {
 	if isMarshaler(t) || (v.CanAddr() && isMarshaler(reflect.PointerTo(t))) {
 		return viaJSON(v)
 	}
+	return kindToGeneric(v, depth)
+}
 
+func indirectToGeneric(v reflect.Value, depth int) (any, error) {
+	if v.IsNil() {
+		return nil, nil
+	}
+	if isMarshaler(v.Type()) {
+		return viaJSON(v)
+	}
+	return toGeneric(v.Elem(), depth+1)
+}
+
+func kindToGeneric(v reflect.Value, depth int) (any, error) {
 	switch v.Kind() {
 	case reflect.Struct:
 		out := map[string]any{}
