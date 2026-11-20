@@ -157,38 +157,47 @@ func bindValue(v any) any {
 }
 
 func applyOrdering(query *gorm.DB, params filter.BaseParams, opts QueryOptions, table, key string) (*gorm.DB, error) {
-	var orders []orderSpec
-
-	if params.OrderBy != "" && params.OrderDirection != "" {
-		if !slices.Contains(opts.AllowedOrderColumns, params.OrderBy) || !isSafeColumnIdentifier(params.OrderBy) {
-			return nil, fmt.Errorf("%w: column is not in AllowedOrderColumns", ErrInvalidOrderColumn)
-		}
-		desc, err := parseDirection(params.OrderDirection)
-		if err != nil {
-			return nil, err
-		}
-		orders = append(orders, orderSpec{column: params.OrderBy, desc: desc})
-	} else {
-		for _, order := range opts.DefaultOrders {
-			spec, err := parseOrder(order)
-			if err != nil {
-				return nil, fmt.Errorf("%w: %w", ErrInvalidQueryOptions, err)
-			}
-			orders = append(orders, spec)
-		}
+	orders, err := requestedOrders(params, opts)
+	if err != nil {
+		return nil, err
 	}
-
 	hasKey := false
 	for _, o := range orders {
 		query = query.Order(o.clause())
-		if o.column == key || o.column == table+"."+key {
-			hasKey = true
-		}
+		hasKey = hasKey || o.column == key || o.column == table+"."+key
 	}
 	if !hasKey {
 		query = query.Order(clause.OrderByColumn{Column: keyColumn(key)})
 	}
 	return query, nil
+}
+
+// requestedOrders validates the client's order against the allow-list, or
+// falls back to the trusted DefaultOrders.
+func requestedOrders(params filter.BaseParams, opts QueryOptions) ([]orderSpec, error) {
+	if params.OrderBy == "" || params.OrderDirection == "" {
+		return defaultOrders(opts)
+	}
+	if !slices.Contains(opts.AllowedOrderColumns, params.OrderBy) || !isSafeColumnIdentifier(params.OrderBy) {
+		return nil, fmt.Errorf("%w: column is not in AllowedOrderColumns", ErrInvalidOrderColumn)
+	}
+	desc, err := parseDirection(params.OrderDirection)
+	if err != nil {
+		return nil, err
+	}
+	return []orderSpec{{column: params.OrderBy, desc: desc}}, nil
+}
+
+func defaultOrders(opts QueryOptions) ([]orderSpec, error) {
+	orders := make([]orderSpec, 0, len(opts.DefaultOrders))
+	for _, order := range opts.DefaultOrders {
+		spec, err := parseOrder(order)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrInvalidQueryOptions, err)
+		}
+		orders = append(orders, spec)
+	}
+	return orders, nil
 }
 
 // effectivePaging resolves limit and offset from PageSize; all means no LIMIT or OFFSET.

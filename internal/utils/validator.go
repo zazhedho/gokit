@@ -63,6 +63,11 @@ func (m sizedMessage) format(fe validator.FieldError) string {
 	return fmt.Sprintf(template, fe.Param())
 }
 
+const (
+	msgValidUUID = "Should be a valid UUID"
+	msgValidURL  = "Should be a valid URL"
+)
+
 // fixedMessages are the tags whose message does not depend on the field.
 var fixedMessages = map[string]string{
 	"required":      "This field is required",
@@ -72,17 +77,17 @@ var fixedMessages = map[string]string{
 	"gtefield":      "Should be greater than or equal to the related field",
 	"ltfield":       "Should be less than the related field",
 	"gtfield":       "Should be greater than the related field",
-	"uuid":          "Should be a valid UUID",
-	"uuid3":         "Should be a valid UUID",
-	"uuid4":         "Should be a valid UUID",
-	"uuid5":         "Should be a valid UUID",
-	"uuid_rfc4122":  "Should be a valid UUID",
-	"uuid3_rfc4122": "Should be a valid UUID",
-	"uuid4_rfc4122": "Should be a valid UUID",
-	"uuid5_rfc4122": "Should be a valid UUID",
-	"url":           "Should be a valid URL",
-	"http_url":      "Should be a valid URL",
-	"uri":           "Should be a valid URL",
+	"uuid":          msgValidUUID,
+	"uuid3":         msgValidUUID,
+	"uuid4":         msgValidUUID,
+	"uuid5":         msgValidUUID,
+	"uuid_rfc4122":  msgValidUUID,
+	"uuid3_rfc4122": msgValidUUID,
+	"uuid4_rfc4122": msgValidUUID,
+	"uuid5_rfc4122": msgValidUUID,
+	"url":           msgValidURL,
+	"http_url":      msgValidURL,
+	"uri":           msgValidURL,
 }
 
 func mapValidateMessage(fe validator.FieldError) string {
