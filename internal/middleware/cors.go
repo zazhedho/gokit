@@ -30,10 +30,28 @@ type CORSOptions struct {
 	MaxAge time.Duration
 }
 
+// requestIDHeader is always exposed and allowed so clients can read the ID.
+const requestIDHeader = "X-Request-ID"
+
 // CORS answers real preflights (OPTIONS with Origin and Access-Control-Request-Method)
 // with 204, or 403 for a disallowed origin; other requests pass through with the
 // allowed origin echoed. It is open (any origin, no credentials) unless restricted.
 func CORS(opts CORSOptions) gin.HandlerFunc {
+	return newCORSPolicy(opts).handle
+}
+
+// corsPolicy holds the validated options and the pre-joined header values.
+type corsPolicy struct {
+	origins        []string
+	wildcard       bool
+	credentials    bool
+	allowedMethods string
+	allowedHeaders string
+	exposed        string
+	maxAge         string
+}
+
+func newCORSPolicy(opts CORSOptions) *corsPolicy {
 	wildcard := len(opts.AllowOrigins) == 0 || slices.Contains(opts.AllowOrigins, "*")
 	if wildcard && opts.AllowCredentials {
 		panic("gokit: CORS cannot combine the \"*\" origin (or no AllowOrigins) with AllowCredentials")
@@ -50,67 +68,80 @@ func CORS(opts CORSOptions) gin.HandlerFunc {
 	}
 	headers := opts.Headers
 	if len(headers) == 0 {
-		headers = []string{"Content-Type", "Authorization", "Accept", "Cache-Control", "X-Request-ID"}
+		headers = []string{"Content-Type", "Authorization", "Accept", "Cache-Control", requestIDHeader}
 	}
 	expose := slices.Clone(opts.Expose)
-	if !slices.ContainsFunc(expose, func(h string) bool { return strings.EqualFold(h, "X-Request-ID") }) {
-		expose = append(expose, "X-Request-ID")
+	if !slices.ContainsFunc(expose, func(h string) bool { return strings.EqualFold(h, requestIDHeader) }) {
+		expose = append(expose, requestIDHeader)
 	}
 
-	allowedMethods := strings.Join(methods, ", ")
-	allowedHeaders := strings.Join(headers, ", ")
-	exposed := strings.Join(expose, ", ")
 	maxAge := ""
 	if opts.MaxAge > 0 {
 		maxAge = strconv.FormatInt(int64(opts.MaxAge/time.Second), 10)
 	}
-
-	return func(c *gin.Context) {
-		if !wildcard {
-			c.Writer.Header().Add("Vary", "Origin")
-		}
-		origin := c.GetHeader("Origin")
-		if origin == "" {
-			c.Next()
-			return
-		}
-		preflight := c.Request.Method == http.MethodOptions && c.GetHeader("Access-Control-Request-Method") != ""
-
-		allowed := wildcard || slices.ContainsFunc(opts.AllowOrigins, func(o string) bool { return strings.EqualFold(o, origin) })
-		h := c.Writer.Header()
-		if !allowed {
-			if preflight {
-				c.AbortWithStatus(http.StatusForbidden)
-				return
-			}
-			c.Next()
-			return
-		}
-
-		if wildcard {
-			h.Set("Access-Control-Allow-Origin", "*")
-		} else {
-			h.Set("Access-Control-Allow-Origin", origin)
-		}
-		if opts.AllowCredentials {
-			h.Set("Access-Control-Allow-Credentials", "true")
-		}
-
-		if preflight {
-			h.Add("Vary", "Access-Control-Request-Method")
-			h.Add("Vary", "Access-Control-Request-Headers")
-			h.Set("Access-Control-Allow-Methods", allowedMethods)
-			h.Set("Access-Control-Allow-Headers", allowedHeaders)
-			if maxAge != "" {
-				h.Set("Access-Control-Max-Age", maxAge)
-			}
-			c.AbortWithStatus(http.StatusNoContent)
-			return
-		}
-
-		h.Set("Access-Control-Expose-Headers", exposed)
-		c.Next()
+	return &corsPolicy{
+		origins:        opts.AllowOrigins,
+		wildcard:       wildcard,
+		credentials:    opts.AllowCredentials,
+		allowedMethods: strings.Join(methods, ", "),
+		allowedHeaders: strings.Join(headers, ", "),
+		exposed:        strings.Join(expose, ", "),
+		maxAge:         maxAge,
 	}
+}
+
+func (p *corsPolicy) originAllowed(origin string) bool {
+	return p.wildcard || slices.ContainsFunc(p.origins, func(o string) bool { return strings.EqualFold(o, origin) })
+}
+
+func (p *corsPolicy) handle(c *gin.Context) {
+	if !p.wildcard {
+		c.Writer.Header().Add("Vary", "Origin")
+	}
+	origin := c.GetHeader("Origin")
+	if origin == "" {
+		c.Next()
+		return
+	}
+	preflight := c.Request.Method == http.MethodOptions && c.GetHeader("Access-Control-Request-Method") != ""
+
+	if !p.originAllowed(origin) {
+		if preflight {
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
+		c.Next()
+		return
+	}
+
+	h := c.Writer.Header()
+	if p.wildcard {
+		h.Set("Access-Control-Allow-Origin", "*")
+	} else {
+		h.Set("Access-Control-Allow-Origin", origin)
+	}
+	if p.credentials {
+		h.Set("Access-Control-Allow-Credentials", "true")
+	}
+
+	if preflight {
+		p.answerPreflight(c)
+		return
+	}
+	h.Set("Access-Control-Expose-Headers", p.exposed)
+	c.Next()
+}
+
+func (p *corsPolicy) answerPreflight(c *gin.Context) {
+	h := c.Writer.Header()
+	h.Add("Vary", "Access-Control-Request-Method")
+	h.Add("Vary", "Access-Control-Request-Headers")
+	h.Set("Access-Control-Allow-Methods", p.allowedMethods)
+	h.Set("Access-Control-Allow-Headers", p.allowedHeaders)
+	if p.maxAge != "" {
+		h.Set("Access-Control-Max-Age", p.maxAge)
+	}
+	c.AbortWithStatus(http.StatusNoContent)
 }
 
 func validOrigin(o string) bool {

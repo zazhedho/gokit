@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -35,16 +36,58 @@ func isCollection(k reflect.Kind) bool {
 	return k == reflect.Slice || k == reflect.Array || k == reflect.Map
 }
 
-// sized describes a bound for the field's kind: strings are measured by length,
-// collections by item count and numbers by value.
-func sized(fe validator.FieldError, number, text, items string) string {
+// sizedMessage holds one message per field kind; %s is the tag's parameter.
+type sizedMessage struct{ number, text, items string }
+
+// sizedMessages are the tags whose wording depends on whether the field is a
+// number, a string (measured by length) or a collection (measured by item count).
+var sizedMessages = map[string]sizedMessage{
+	"min": {"Minimum value is %s", "Minimum length is %s", "Minimum %s items"},
+	"max": {"Maximum value is %s", "Maximum length is %s", "Maximum %s items"},
+	"len": {"Should be exactly %s", "Length should be exactly %s", "Should contain exactly %s items"},
+	"lt":  {"Should be less than %s", "Length should be less than %s", "Should contain fewer than %s items"},
+	"lte": {"Should be less than or equal to %s", "Length should be at most %s", "Should contain at most %s items"},
+	"gt":  {"Should be greater than %s", "Length should be greater than %s", "Should contain more than %s items"},
+	"gte": {"Should be greater than or equal to %s", "Length should be at least %s", "Should contain at least %s items"},
+}
+
+// format picks the wording for the field's kind and fills in the parameter.
+func (m sizedMessage) format(fe validator.FieldError) string {
+	template := m.number
 	switch {
 	case fe.Kind() == reflect.String:
-		return text
+		template = m.text
 	case isCollection(fe.Kind()):
-		return items
+		template = m.items
 	}
-	return number
+	return fmt.Sprintf(template, fe.Param())
+}
+
+const (
+	msgValidUUID = "Should be a valid UUID"
+	msgValidURL  = "Should be a valid URL"
+)
+
+// fixedMessages are the tags whose message does not depend on the field.
+var fixedMessages = map[string]string{
+	"required":      "This field is required",
+	"email":         "Invalid email",
+	"alphanum":      "Should be alphanumeric",
+	"ltefield":      "Should be less than or equal to the related field",
+	"gtefield":      "Should be greater than or equal to the related field",
+	"ltfield":       "Should be less than the related field",
+	"gtfield":       "Should be greater than the related field",
+	"uuid":          msgValidUUID,
+	"uuid3":         msgValidUUID,
+	"uuid4":         msgValidUUID,
+	"uuid5":         msgValidUUID,
+	"uuid_rfc4122":  msgValidUUID,
+	"uuid3_rfc4122": msgValidUUID,
+	"uuid4_rfc4122": msgValidUUID,
+	"uuid5_rfc4122": msgValidUUID,
+	"url":           msgValidURL,
+	"http_url":      msgValidURL,
+	"uri":           msgValidURL,
 }
 
 func mapValidateMessage(fe validator.FieldError) string {
@@ -55,44 +98,15 @@ func mapValidateMessage(fe validator.FieldError) string {
 		return override(fe.Param())
 	}
 
-	p := fe.Param()
-	switch fe.Tag() {
-	case "required":
-		return "This field is required"
-	case "email":
-		return "Invalid email"
-	case "alphanum":
-		return "Should be alphanumeric"
-	case "min":
-		return sized(fe, "Minimum value is "+p, "Minimum length is "+p, "Minimum "+p+" items")
-	case "max":
-		return sized(fe, "Maximum value is "+p, "Maximum length is "+p, "Maximum "+p+" items")
-	case "len":
-		return sized(fe, "Should be exactly "+p, "Length should be exactly "+p, "Should contain exactly "+p+" items")
-	case "lt":
-		return sized(fe, "Should be less than "+p, "Length should be less than "+p, "Should contain fewer than "+p+" items")
-	case "lte":
-		return sized(fe, "Should be less than or equal to "+p, "Length should be at most "+p, "Should contain at most "+p+" items")
-	case "gt":
-		return sized(fe, "Should be greater than "+p, "Length should be greater than "+p, "Should contain more than "+p+" items")
-	case "gte":
-		return sized(fe, "Should be greater than or equal to "+p, "Length should be at least "+p, "Should contain at least "+p+" items")
-	case "ltefield":
-		return "Should be less than or equal to the related field"
-	case "gtefield":
-		return "Should be greater than or equal to the related field"
-	case "ltfield":
-		return "Should be less than the related field"
-	case "gtfield":
-		return "Should be greater than the related field"
-	case "oneof":
-		return "Should be one of: " + strings.Join(strings.Fields(p), ", ")
-	case "uuid", "uuid3", "uuid4", "uuid5", "uuid_rfc4122", "uuid3_rfc4122", "uuid4_rfc4122", "uuid5_rfc4122":
-		return "Should be a valid UUID"
-	case "url", "http_url", "uri":
-		return "Should be a valid URL"
+	if m, ok := sizedMessages[fe.Tag()]; ok {
+		return m.format(fe)
 	}
-
+	if m, ok := fixedMessages[fe.Tag()]; ok {
+		return m
+	}
+	if fe.Tag() == "oneof" {
+		return "Should be one of: " + strings.Join(strings.Fields(fe.Param()), ", ")
+	}
 	return "Invalid value"
 }
 
@@ -112,43 +126,62 @@ func jsonFieldPath(typ reflect.Type, namespace, tagName string) (string, bool) {
 	var parts []string
 	for _, segment := range strings.Split(rest, ".") {
 		name, indexes, _ := strings.Cut(segment, "[")
-		for cur.Kind() == reflect.Pointer {
-			cur = cur.Elem()
-		}
-		if cur.Kind() != reflect.Struct {
-			return "", false
-		}
-		field, ok := cur.FieldByName(name)
+		field, ok := structField(cur, name)
 		if !ok {
 			return "", false
 		}
-
-		jsonName, _, _ := strings.Cut(field.Tag.Get(tagName), ",")
-		switch {
-		case jsonName == "" && field.Anonymous:
-			// embedded structs are flattened in JSON; contribute no segment
-		case jsonName == "" || jsonName == "-":
-			parts = append(parts, field.Name)
-		default:
-			parts = append(parts, jsonName)
-		}
+		parts = appendJSONName(parts, field, tagName)
 		if indexes != "" {
 			parts[len(parts)-1] += "[" + indexes
 		}
-
-		cur = field.Type
-		for indexes != "" {
-			for cur.Kind() == reflect.Pointer {
-				cur = cur.Elem()
-			}
-			if !isCollection(cur.Kind()) {
-				return "", false
-			}
-			cur = cur.Elem()
-			_, indexes, _ = strings.Cut(indexes, "[")
+		if cur, ok = elemAfterIndexes(field.Type, indexes); !ok {
+			return "", false
 		}
 	}
 	return strings.Join(parts, "."), len(parts) > 0
+}
+
+func derefType(t reflect.Type) reflect.Type {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t
+}
+
+// structField looks up name in t, which must be a struct or pointer to one.
+func structField(t reflect.Type, name string) (reflect.StructField, bool) {
+	t = derefType(t)
+	if t.Kind() != reflect.Struct {
+		return reflect.StructField{}, false
+	}
+	return t.FieldByName(name)
+}
+
+// appendJSONName adds the JSON name of field to parts; embedded structs are
+// flattened in JSON, so they add nothing.
+func appendJSONName(parts []string, field reflect.StructField, tagName string) []string {
+	jsonName, _, _ := strings.Cut(field.Tag.Get(tagName), ",")
+	switch {
+	case jsonName == "" && field.Anonymous:
+		return parts
+	case jsonName == "" || jsonName == "-":
+		return append(parts, field.Name)
+	}
+	return append(parts, jsonName)
+}
+
+// elemAfterIndexes steps t through each "[...]" index in indexes and returns
+// the element type reached.
+func elemAfterIndexes(t reflect.Type, indexes string) (reflect.Type, bool) {
+	for indexes != "" {
+		t = derefType(t)
+		if !isCollection(t.Kind()) {
+			return nil, false
+		}
+		t = t.Elem()
+		_, indexes, _ = strings.Cut(indexes, "[")
+	}
+	return t, true
 }
 
 func expectedJSONType(k reflect.Kind) string {

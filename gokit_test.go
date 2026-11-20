@@ -483,27 +483,34 @@ func TestEveryErrorUsesOneShapeAndTheRequestID(t *testing.T) {
 	}
 	for name, tc := range cases {
 		rec, body := call(r, tc.method, tc.path, tc.body, hdr)
-		if rec.Code != tc.status {
-			t.Errorf("%s: status %d, want %d (%s)", name, rec.Code, tc.status, rec.Body.String())
-			continue
+		checkErrorResponse(t, name, tc.status, id, rec, body)
+	}
+}
+
+// checkErrorResponse verifies one error response: status, the error list, the
+// request ID in body and header, and that nothing internal leaks.
+func checkErrorResponse(t *testing.T, name string, status int, id string, rec *httptest.ResponseRecorder, body map[string]any) {
+	t.Helper()
+	if rec.Code != status {
+		t.Errorf("%s: status %d, want %d (%s)", name, rec.Code, status, rec.Body.String())
+		return
+	}
+	list, ok := body["error"].([]any)
+	if !ok || len(list) == 0 {
+		t.Errorf("%s: error must be a non-empty list: %s", name, rec.Body.String())
+		return
+	}
+	for _, item := range list {
+		m := item.(map[string]any)
+		if m["code"] == nil || m["message"] == nil {
+			t.Errorf("%s: item needs code and message: %v", name, m)
 		}
-		list, ok := body["error"].([]any)
-		if !ok || len(list) == 0 {
-			t.Errorf("%s: error must be a non-empty list: %s", name, rec.Body.String())
-			continue
-		}
-		for _, item := range list {
-			m := item.(map[string]any)
-			if m["code"] == nil || m["message"] == nil {
-				t.Errorf("%s: item needs code and message: %v", name, m)
-			}
-		}
-		if body["log_id"] != id || rec.Header().Get("X-Request-ID") != id {
-			t.Errorf("%s: log_id %v / header %q, want %s", name, body["log_id"], rec.Header().Get("X-Request-ID"), id)
-		}
-		if strings.Contains(rec.Body.String(), "secret internals") || strings.Contains(rec.Body.String(), "createItem") {
-			t.Errorf("%s: body leaks internals: %s", name, rec.Body.String())
-		}
+	}
+	if body["log_id"] != id || rec.Header().Get("X-Request-ID") != id {
+		t.Errorf("%s: log_id %v / header %q, want %s", name, body["log_id"], rec.Header().Get("X-Request-ID"), id)
+	}
+	if strings.Contains(rec.Body.String(), "secret internals") || strings.Contains(rec.Body.String(), "createItem") {
+		t.Errorf("%s: body leaks internals: %s", name, rec.Body.String())
 	}
 }
 

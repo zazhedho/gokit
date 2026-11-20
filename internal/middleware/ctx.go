@@ -14,7 +14,7 @@ import (
 func RequestIDMiddleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		var id uuid.UUID
-		if header := ctx.GetHeader("X-Request-ID"); header != "" {
+		if header := ctx.GetHeader(requestIDHeader); header != "" {
 			if parsed, err := uuid.Parse(header); err == nil {
 				id = parsed
 			}
@@ -30,7 +30,7 @@ func RequestIDMiddleware() gin.HandlerFunc {
 
 		ctx.Set(logus.CtxKeyRequestID, id)
 		ctx.Request = ctx.Request.WithContext(utils.WithRequestID(ctx.Request.Context(), id))
-		ctx.Writer.Header().Set("X-Request-ID", id.String())
+		ctx.Writer.Header().Set(requestIDHeader, id.String())
 		ctx.Next()
 	}
 }
