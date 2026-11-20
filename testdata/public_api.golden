@@ -1,0 +1,172 @@
+type APIResponse alias struct
+	field LogID github.com/google/uuid.UUID
+	tag LogID json:"log_id"
+	field Code int
+	tag Code json:"code,omitempty"
+	field Status bool
+	tag Status json:"status"
+	field Message string
+	tag Message json:"message"
+	field Data any
+	tag Data json:"data,omitempty"
+	field Error []ErrorDetail
+	tag Error json:"error,omitempty"
+type BaseParams alias struct
+	field Search string
+	tag Search json:"search" form:"search"
+	field Filters map[string]any
+	tag Filters json:"filters" form:"filters"
+	field OrderBy string
+	tag OrderBy json:"order_by" form:"order_by"
+	field OrderDirection string
+	tag OrderDirection json:"order_direction" form:"order_direction"
+	field Page int
+	tag Page json:"page" form:"page"
+	field Limit int
+	tag Limit json:"limit" form:"limit"
+	field Offset int
+	tag Offset json:"offset" form:"offset"
+func BindJSON[T any](ctx *github.com/gin-gonic/gin.Context, logID github.com/google/uuid.UUID, logPrefix string, req *T, opts ...BindOption) bool
+type BindOption alias func(*options)
+func BuildSearchFunc(columns ...string) SearchFunc
+func CORS(opts CORSOptions) github.com/gin-gonic/gin.HandlerFunc
+type CORSOptions alias struct
+	field AllowOrigins []string
+	field Methods []string
+	field Headers []string
+	field Expose []string
+	field AllowCredentials bool
+	field MaxAge time.Duration
+type CRUDRepository interface
+	method Delete(ctx context.Context, id string) error
+	method ExistsByField(ctx context.Context, field string, value any) (bool, error)
+	method ExistsByFields(ctx context.Context, filters map[string]any) (bool, error)
+	method GetAll(ctx context.Context, params BaseParams, opts QueryOptions) ([]T, int64, error)
+	method GetByID(ctx context.Context, id string) (T, error)
+	method GetManyByField(ctx context.Context, field string, value any, limit int, order string) ([]T, error)
+	method GetOneByField(ctx context.Context, field string, value any) (T, error)
+	method SoftDelete(ctx context.Context, id string, deletedBy string) error
+	method Store(ctx context.Context, m *T) error
+	method Update(ctx context.Context, m *T) error
+	method Upsert(ctx context.Context, values []T, conflictColumns []string, updateColumns []string) error
+func ConvertValuesToString(filters map[string]any, keys ...string) map[string]any
+func CreateUUID() string
+const CtxKeyRequestID untyped string = "CTX_ID"
+const DefaultMaxLimit untyped int = 100
+const DefaultMaxSearchLength untyped int = 100
+const DefaultRateLimitTimeout time.Duration = 200000000
+func DurationFromEnv(keys []string, fallback time.Duration) time.Duration
+func EndpointRateLimit(opts RateLimitOptions) github.com/gin-gonic/gin.HandlerFunc
+func EnvErrors() error
+type EnvValue alias interface
+var ErrInvalidFilter error
+var ErrInvalidOrderColumn error
+var ErrInvalidOrderDirection error
+var ErrInvalidQueryOptions error
+var ErrInvalidUUID error
+var ErrMissingID error
+var ErrNotFound error
+type ErrorDetail alias struct
+	field Field string
+	tag Field json:"field,omitempty"
+	field Code string
+	tag Code json:"code"
+	field Message string
+	tag Message json:"message"
+func ErrorResponse(code int, msg string, logID github.com/google/uuid.UUID, publicError string) *APIResponse
+type FilterSanitizer alias func(filters map[string]any, allowed []string) map[string]any
+func Forbidden(logID github.com/google/uuid.UUID, publicError string) *APIResponse
+func GetBaseParams(query net/url.Values, defOrderBy string, defOrderDirection string, defLimit int) (req BaseParams, err error)
+func GetEnv[T EnvValue](key string, def T) T
+func IPRateLimit(opts RateLimitOptions) github.com/gin-gonic/gin.HandlerFunc
+func InterfaceString(data any) string
+func InternalServerError(logID github.com/google/uuid.UUID) *APIResponse
+func JSONEncode(data any) string
+const MsgAccessDenied untyped string = "Access denied. You do not have the required permissions."
+const MsgExists untyped string = "Already exists."
+const MsgInternal untyped string = "Something went wrong. Please contact support with the log ID: %s."
+const MsgInvalidRequest untyped string = "Invalid request format. Please ensure the structure is correct and matches the expected data format."
+const MsgNotFound untyped string = "Data Not Found"
+const MsgRequestTooLarge untyped string = "Request body too large"
+const MsgResourceNotFound untyped string = "The requested resource could not be found"
+const MsgSomethingWrong untyped string = "Something went wrong"
+const MsgSuccess untyped string = "Success"
+func NewRepository[T any](db *gorm.io/gorm.DB) *Repository[T]
+type PaginatedResponse alias struct
+	field LogID github.com/google/uuid.UUID
+	tag LogID json:"log_id"
+	field Code int
+	tag Code json:"code"
+	field Status bool
+	tag Status json:"status"
+	field Message string
+	tag Message json:"message"
+	field TotalData int64
+	tag TotalData json:"total_data"
+	field TotalPages int64
+	tag TotalPages json:"total_pages"
+	field CurrentPage int
+	tag CurrentPage json:"current_page"
+	field NextPage bool
+	tag NextPage json:"next_page"
+	field PrevPage bool
+	tag PrevPage json:"prev_page"
+	field Limit int
+	tag Limit json:"limit"
+	field Data any
+	tag Data json:"data"
+	field Error []ErrorDetail
+	tag Error json:"error,omitempty"
+func PaginationResponse(code int, total int64, page int, perPage int, logID github.com/google/uuid.UUID, data any) *PaginatedResponse
+type QueryFunc alias func(query *gorm.io/gorm.DB) *gorm.io/gorm.DB
+type QueryOptions alias struct
+	field BaseQuery QueryFunc
+	field Search SearchFunc
+	field AllowedFilters []string
+	field FilterSanitizer FilterSanitizer
+	field AllowedOrderColumns []string
+	field DefaultOrders []string
+	field MaxLimit int
+	field AllowAll bool
+	field MaxSearchLength int
+	method (T) PageSize(p BaseParams) int
+	method (T) Validate() error
+type RateLimitOptions alias struct
+	field Redis github.com/redis/go-redis/v9.Cmdable
+	field Prefix string
+	field Limit int
+	field Window time.Duration
+	field KeyFunc func(*github.com/gin-gonic/gin.Context) string
+	field FailClosed bool
+	field Timeout time.Duration
+func Recovery() github.com/gin-gonic/gin.HandlerFunc
+func RedactSensitivePayload(input any, extraKeys ...string) any
+type Repository struct
+	field DB *gorm.io/gorm.DB
+	field KeyColumn string
+	method (*T) Delete(ctx context.Context, id string) error
+	method (*T) ExistsByField(ctx context.Context, field string, value any) (bool, error)
+	method (*T) ExistsByFields(ctx context.Context, filters map[string]any) (bool, error)
+	method (*T) GetAll(ctx context.Context, params BaseParams, opts QueryOptions) ([]T, int64, error)
+	method (*T) GetByID(ctx context.Context, id string) (T, error)
+	method (*T) GetManyByField(ctx context.Context, field string, value any, limit int, order string) ([]T, error)
+	method (*T) GetOneByField(ctx context.Context, field string, value any) (T, error)
+	method (*T) SoftDelete(ctx context.Context, id string, deletedBy string) error
+	method (*T) Store(ctx context.Context, m *T) error
+	method (*T) Update(ctx context.Context, m *T) error
+	method (*T) Upsert(ctx context.Context, values []T, conflictColumns []string, updateColumns []string) error
+func RequestID(ctx context.Context) github.com/google/uuid.UUID
+func RequestIDMiddleware() github.com/gin-gonic/gin.HandlerFunc
+func ResetEnvErrors()
+func Response(code int, msg string, logID github.com/google/uuid.UUID, data any) *APIResponse
+type SearchFunc alias func(query *gorm.io/gorm.DB, search string) *gorm.io/gorm.DB
+func SetEODLocation(loc *time.Location)
+func SetValidationMessage(tag string, fn func(param string) string)
+func Unauthorized(logID github.com/google/uuid.UUID, publicError string) *APIResponse
+func ValidateError(err error, reflectType reflect.Type, tagName string) []ErrorDetail
+func ValidateUUID(id string) (string, error)
+func ValidateUUIDParam(ctx *github.com/gin-gonic/gin.Context, logID github.com/google/uuid.UUID) (string, error)
+func WhitelistFilter(filters map[string]any, allowed []string) map[string]any
+func WhitelistStringFilter(filters map[string]any, allowed []string) map[string]any
+func WithMaxBodyBytes(n int64) BindOption
+func WithRequestID(ctx context.Context, requestID github.com/google/uuid.UUID) context.Context
