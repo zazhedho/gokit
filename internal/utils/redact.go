@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"cmp"
 	"encoding"
 	"encoding/json"
 	"errors"
@@ -63,19 +64,23 @@ func keyWords(key string) []string {
 			flush()
 			continue
 		}
-		if i > 0 && len(cur) > 0 {
-			prev := runes[i-1]
-			upperAfterLowerOrDigit := unicode.IsUpper(r) && (unicode.IsLower(prev) || unicode.IsDigit(prev))
-			acronymEnd := unicode.IsUpper(r) && unicode.IsUpper(prev) && i+1 < len(runes) && unicode.IsLower(runes[i+1])
-			letterDigitEdge := unicode.IsDigit(r) != unicode.IsDigit(prev)
-			if upperAfterLowerOrDigit || acronymEnd || letterDigitEdge {
-				flush()
-			}
+		if i > 0 && len(cur) > 0 && startsNewWord(runes, i) {
+			flush()
 		}
 		cur = append(cur, r)
 	}
 	flush()
 	return words
+}
+
+// startsNewWord reports whether runes[i] opens a new word: a camel-case hump,
+// the last capital of an acronym, or a letter/digit edge. It needs i > 0.
+func startsNewWord(runes []rune, i int) bool {
+	r, prev := runes[i], runes[i-1]
+	upperAfterLowerOrDigit := unicode.IsUpper(r) && (unicode.IsLower(prev) || unicode.IsDigit(prev))
+	acronymEnd := unicode.IsUpper(r) && unicode.IsUpper(prev) && i+1 < len(runes) && unicode.IsLower(runes[i+1])
+	letterDigitEdge := unicode.IsDigit(r) != unicode.IsDigit(prev)
+	return upperAfterLowerOrDigit || acronymEnd || letterDigitEdge
 }
 
 func isSensitiveKey(key string, extra []string) bool {
@@ -185,7 +190,7 @@ func toGeneric(v reflect.Value, depth int) (any, error) {
 		if v.IsNil() {
 			return nil, nil
 		}
-		if v.Type().Implements(jsonMarshalerType) || v.Type().Implements(textMarshalerType) {
+		if isMarshaler(v.Type()) {
 			return viaJSON(v)
 		}
 		v = v.Elem()
@@ -198,8 +203,7 @@ func toGeneric(v reflect.Value, depth int) (any, error) {
 	if t == rawMessageType || (t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8) {
 		return redactBytes(v.Bytes(), nil, depth), nil
 	}
-	if t.Implements(jsonMarshalerType) || t.Implements(textMarshalerType) ||
-		(v.CanAddr() && (reflect.PointerTo(t).Implements(jsonMarshalerType) || reflect.PointerTo(t).Implements(textMarshalerType))) {
+	if isMarshaler(t) || (v.CanAddr() && isMarshaler(reflect.PointerTo(t))) {
 		return viaJSON(v)
 	}
 
@@ -208,36 +212,57 @@ func toGeneric(v reflect.Value, depth int) (any, error) {
 		out := map[string]any{}
 		return out, structFields(v, out, depth)
 	case reflect.Map:
-		if v.IsNil() {
-			return nil, nil
-		}
-		out := make(map[string]any, v.Len())
-		iter := v.MapRange()
-		for iter.Next() {
-			val, err := toGeneric(iter.Value(), depth+1)
-			if err != nil {
-				return nil, err
-			}
-			out[fmt.Sprint(iter.Key().Interface())] = val
-		}
-		return out, nil
+		return mapToGeneric(v, depth)
 	case reflect.Slice, reflect.Array:
-		if v.Kind() == reflect.Slice && v.IsNil() {
-			return nil, nil
-		}
-		out := make([]any, v.Len())
-		for i := range out {
-			val, err := toGeneric(v.Index(i), depth+1)
-			if err != nil {
-				return nil, err
-			}
-			out[i] = val
-		}
-		return out, nil
+		return sliceToGeneric(v, depth)
 	case reflect.Chan, reflect.Func, reflect.UnsafePointer, reflect.Complex64, reflect.Complex128:
 		return nil, errors.New("unsupported kind")
 	}
 	return v.Interface(), nil
+}
+
+func isMarshaler(t reflect.Type) bool {
+	return t.Implements(jsonMarshalerType) || t.Implements(textMarshalerType)
+}
+
+func mapToGeneric(v reflect.Value, depth int) (any, error) {
+	if v.IsNil() {
+		return nil, nil
+	}
+	out := make(map[string]any, v.Len())
+	iter := v.MapRange()
+	for iter.Next() {
+		val, err := toGeneric(iter.Value(), depth+1)
+		if err != nil {
+			return nil, err
+		}
+		out[fmt.Sprint(iter.Key().Interface())] = val
+	}
+	return out, nil
+}
+
+func sliceToGeneric(v reflect.Value, depth int) (any, error) {
+	if v.Kind() == reflect.Slice && v.IsNil() {
+		return nil, nil
+	}
+	out := make([]any, v.Len())
+	for i := range out {
+		val, err := toGeneric(v.Index(i), depth+1)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = val
+	}
+	return out, nil
+}
+
+// embeddedStruct returns the struct promoted by an untagged embedded field.
+func embeddedStruct(f reflect.StructField, name string, fv reflect.Value) (reflect.Value, bool) {
+	if !f.Anonymous || name != "" {
+		return reflect.Value{}, false
+	}
+	inner := reflect.Indirect(fv)
+	return inner, inner.Kind() == reflect.Struct
 }
 
 func structFields(v reflect.Value, out map[string]any, depth int) error {
@@ -250,28 +275,20 @@ func structFields(v reflect.Value, out map[string]any, depth int) error {
 			continue
 		}
 		fv := v.Field(i)
-		if f.Anonymous && name == "" {
-			if inner := reflect.Indirect(fv); inner.Kind() == reflect.Struct {
-				if err := structFields(inner, out, depth+1); err != nil {
-					return err
-				}
-				continue
+		if inner, ok := embeddedStruct(f, name, fv); ok {
+			if err := structFields(inner, out, depth+1); err != nil {
+				return err
 			}
-		}
-		if !f.IsExported() {
 			continue
 		}
-		if strings.Contains(","+opts+",", ",omitempty,") && fv.IsZero() {
+		if !f.IsExported() || (strings.Contains(","+opts+",", ",omitempty,") && fv.IsZero()) {
 			continue
-		}
-		if name == "" {
-			name = f.Name
 		}
 		val, err := toGeneric(fv, depth+1)
 		if err != nil {
 			return err
 		}
-		out[name] = val
+		out[cmp.Or(name, f.Name)] = val
 	}
 	return nil
 }
